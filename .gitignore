@@ -1,0 +1,30 @@
+# Node / TypeScript
+node_modules/
+dist/
+build/
+out/
+*.tsbuildinfo
+
+# Tests
+coverage/
+
+# Reference repo clones for the Stage 0 audit (kept out of the repo)
+/reference/
+
+# Local state / databases
+*.sqlite
+*.sqlite3
+*.db
+
+# Environment
+.env
+.env.*
+
+# Logs
+*.log
+
+# Editor / OS
+.DS_Store
+Thumbs.db
+.idea/
+.vscode/
