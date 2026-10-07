@@ -9,6 +9,7 @@
     "demo": "tsx tools/demo.ts",
     "demo:live": "tsx tools/demo.ts --live",
     "preview": "tsx tools/preview.ts",
+    "session": "tsx tools/session.ts",
     "test": "vitest run",
     "typecheck": "tsc --noEmit"
   },

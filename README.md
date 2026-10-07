@@ -4,11 +4,12 @@ A reference-first terminal V-Pet that lives inside your coding agent: the agent'
 
 > **Naming:** the implementation plan refers to the project as **CodePet**; this repo (`agentMon`) is its implementation home.
 
-**Status: Stage 1 complete · next: Stage 2 (pet core — state, persistence, event reducer)**
+**Status: Stage 2 complete · next: Stage 3 (Pi integration — event adapter, widget, `/pet`)**
 
 - Full plan: [`docs/plan.md`](docs/plan.md)
 - Stage 0 deliverable: [`docs/reference-audit.md`](docs/reference-audit.md) — per-repo findings, reuse verdicts (COPY/PORT/ADAPT/ORIGINAL), and the design decisions they lock in
 - Stage 1 deliverable: the renderer port (`packages/renderer/`) + **Byte**, the first original creature (`pets/sprites/byte.ts`) — run `npm install && npm run demo` (or `npm run demo:live`), all poses via `npm run preview`
+- Stage 2 deliverable: the pet core (`packages/core/`, `packages/events/`, `packages/storage/`) — pure `reduceEvent`/`tick` with injected clock, atomic saves + batched catch-up, pet collection. See it live without Pi: `npm run session`
 
 ## Rule #1 — do not reinvent
 
