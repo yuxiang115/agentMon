@@ -1,11 +1,10 @@
 // Stage 1 deliverable — the "codepet demo" (plan.md §19): the original
 // creature on its 32x16 LCD, in every activity.
 //
-//   npm run demo              transparent sprites — no LCD plate (default)
-//   npm run demo -- --invert  light ink (for dark terminals)
-//   npm run demo -- --lcd     paint the LCD plate too (grey; dark with --invert)
-//   npm run demo -- --live    10 Hz animated loop (flags combine freely)
-//   npm run demo -- --plain   plain four-glyph text (pipe/CI-safe)
+//   npm run demo             static panel sheet (ANSI, LCD look)
+//   npm run demo -- --invert dark-mode LCD (light ink on dark slate)
+//   npm run demo -- --live   10 Hz animated loop: roaming + activity cycling
+//   npm run demo -- --plain  static, plain four-glyph text (pipe/CI-safe)
 
 import {
   bitmapText,
@@ -28,9 +27,8 @@ type Activity = (typeof ACTIVITIES)[number];
 
 const plain = process.argv.includes("--plain");
 const invert = process.argv.includes("--invert");
-const plate = process.argv.includes("--lcd");
-const ON = invert ? "#c6c9cc" : "#2b2e31"; // --invert: light ink for dark terminals
-const BG = plate ? (invert ? "#2b2e31" : "#c6c9cc") : null; // null = transparent
+const ON = invert ? "#c6c9cc" : "#2b2e31";
+const BG = invert ? "#2b2e31" : "#c6c9cc";
 
 const paint = { on: ON, bg: BG, plain };
 
@@ -103,7 +101,8 @@ if (process.argv.includes("--live")) {
       title: "4-glyph path (bitmapText)",
       lines: plain ? bitmapText(BYTE.poses.idleA) : styleLines(bitmapText(BYTE.poses.idleA), ON, BG),
       width: 16,
-    },    { title: "think", lines: lcd("think"), width: 32 },
+    },
+    { title: "think", lines: lcd("think"), width: 32 },
     { title: "search", lines: lcd("search"), width: 32 },
   ]));
   console.log();

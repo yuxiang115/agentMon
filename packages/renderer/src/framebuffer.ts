@@ -96,18 +96,12 @@ export function fillBuf(
 }
 
 export interface PaintOptions {
-  /** Ink colour. */
   on?: string;
-  /**
-   * LCD plate background colour. Pass `null` for a TRANSPARENT background:
-   * off pixels print a bare space (terminal default, nothing painted) and
-   * inked pixels use the four-glyph encoding with foreground colour only.
-   */
-  bg?: string | null;
+  bg?: string;
   /** Colour for the free-ink (plane 2) pixels; defaults to `on`. */
   freeInk?: string;
   /**
-   * Emit plain four-glyph text instead of coloured cells. The ▀-only plate
+   * Emit plain four-glyph text instead of coloured ▀ cells. The ▀-only
    * encoding carries pixels in the ANSI colours, so stripped-of-ANSI output
    * would be meaningless; this mode trades the LCD look for pipe/CI-safe text.
    */
@@ -115,17 +109,14 @@ export interface PaintOptions {
 }
 
 /**
- * The compositor, three modes:
- *  - plate (bg set): ONE "▀" per cell; top pixel -> foreground colour, bottom
- *    pixel -> background colour. A dot matrix's dead pixels are modelled by
- *    the LCD background colour.
- *  - transparent (bg null): ink-only four-glyph cells (" ", "▀", "▄", "█")
- *    with no background — off pixels leave the terminal untouched.
- *  - plain: the transparent glyph scheme without any ANSI at all.
+ * The compositor: ONE "▀" per cell; top pixel -> foreground colour, bottom
+ * pixel -> background colour. A dot matrix's dead pixels are modelled by the
+ * LCD background colour, so both-off cells render as blank lcd-grey.
+ * With `plain`, falls back to the four-glyph encoding without ANSI.
  */
 export function paintLcd(buf: number[][], opts: PaintOptions = {}): string[] {
   const on = opts.on ?? "#2b2e31";
-  const bg = opts.bg === null ? null : (opts.bg ?? "#c6c9cc");
+  const bg = opts.bg ?? "#c6c9cc";
   const fi = opts.freeInk ?? on;
   const pxH = buf.length;
   const cols = buf[0]?.length ?? 0;
@@ -135,15 +126,10 @@ export function paintLcd(buf: number[][], opts: PaintOptions = {}): string[] {
     for (let cx = 0; cx < cols; cx++) {
       const tv = buf[cy * 2][cx];
       const bv = buf[cy * 2 + 1][cx];
-      if (opts.plain || bg === null) {
+      if (opts.plain) {
         const t = tv !== 0;
         const b = bv !== 0;
-        if (!t && !b) {
-          line += " ";
-          continue;
-        }
-        const glyph = t && b ? FULL : t ? UPPER : LOWER;
-        line += opts.plain ? glyph : fgColor(tv === 2 ? fi : on) + glyph;
+        line += t && b ? FULL : t ? UPPER : b ? LOWER : " ";
         continue;
       }
       const tc = tv === 0 ? bg : tv === 2 ? fi : on;
