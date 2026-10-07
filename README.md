@@ -4,7 +4,7 @@ A reference-first terminal V-Pet that lives inside your coding agent: the agent'
 
 > **Naming:** the implementation plan refers to the project as **CodePet**; this repo (`agentMon`) is its implementation home.
 
-**Status: Stage 3 complete · next: Stage 4 (coding progression — outcome-based XP, traits, care mistakes, task boundaries)**
+**Status: Stage 4 complete · next: Stage 5 (evolution — three branches from ByteBaby)**
 
 - Full plan: [`docs/plan.md`](docs/plan.md)
 - Stage 0 deliverable: [`docs/reference-audit.md`](docs/reference-audit.md) — per-repo findings, reuse verdicts (COPY/PORT/ADAPT/ORIGINAL), and the design decisions they lock in
