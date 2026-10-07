@@ -2,6 +2,7 @@
 // creature on its 32x16 LCD, in every activity.
 //
 //   npm run demo             static panel sheet (ANSI, LCD look)
+//   npm run demo -- --invert dark-mode LCD (light ink on dark slate)
 //   npm run demo -- --live   10 Hz animated loop: roaming + activity cycling
 //   npm run demo -- --plain  static, plain four-glyph text (pipe/CI-safe)
 
@@ -21,12 +22,14 @@ import {
 import { COLS, CHAR_ROWS, roamBounds } from "../packages/renderer/src/lcd";
 import { BYTE } from "../pets/sprites/byte";
 
-const ON = "#2b2e31";
-const BG = "#c6c9cc";
 const ACTIVITIES = ["idle", "walk", "think", "search", "code", "test", "happy", "sad", "sleep"] as const;
 type Activity = (typeof ACTIVITIES)[number];
 
 const plain = process.argv.includes("--plain");
+const invert = process.argv.includes("--invert");
+const ON = invert ? "#c6c9cc" : "#2b2e31";
+const BG = invert ? "#2b2e31" : "#c6c9cc";
+
 const paint = { on: ON, bg: BG, plain };
 
 function lcdFor(activity: Activity, tick: number, x?: number, mirror?: boolean): string[] {
