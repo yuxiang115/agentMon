@@ -1,0 +1,21 @@
+{
+  "name": "agentmon",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Reference-first terminal V-Pet that lives inside your coding agent (CodePet implementation home)",
+  "license": "MIT",
+  "type": "module",
+  "scripts": {
+    "demo": "tsx tools/demo.ts",
+    "demo:live": "tsx tools/demo.ts --live",
+    "preview": "tsx tools/preview.ts",
+    "test": "vitest run",
+    "typecheck": "tsc --noEmit"
+  },
+  "devDependencies": {
+    "@types/node": "^22.10.0",
+    "tsx": "^4.19.2",
+    "typescript": "^5.7.2",
+    "vitest": "^3.0.0"
+  }
+}
