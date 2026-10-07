@@ -69,8 +69,9 @@ export function bitmapText(rows: Bitmap | null, padTo = 0): string[] {
   return out;
 }
 
-export function styleLines(lines: string[], on: string, bg: string): string[] {
-  return lines.map((l) => fgColor(on) + bgColor(bg) + l + RESET);
+/** Style pre-rendered glyph lines; omit `bg` for an ink-only transparent look. */
+export function styleLines(lines: string[], on: string, bg?: string | null): string[] {
+  return lines.map((l) => (bg ? fgColor(on) + bgColor(bg) : fgColor(on)) + l + RESET);
 }
 
 /**

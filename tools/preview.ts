@@ -2,8 +2,9 @@
 // agentMon's own tool (tuipet's tools/preview.py and tools/allframes.py are
 // broken — they import helpers removed from tuipet's render.py; audit §2.2).
 //
-//   npm run preview            ANSI-coloured
-//   npm run preview -- --invert dark-mode LCD (light ink on dark slate)
+//   npm run preview            transparent sprites (default, no LCD plate)
+//   npm run preview -- --invert light ink (for dark terminals)
+//   npm run preview -- --lcd   paint the LCD plate too
 //   npm run preview -- --plain raw glyphs (for piping/CI)
 
 import { bitmapText, styleLines, stripAnsi, type Bitmap } from "../packages/renderer/src/halfblock";
@@ -11,8 +12,9 @@ import { BYTE, POSE_NAMES } from "../pets/sprites/byte";
 
 const plain = process.argv.includes("--plain");
 const invert = process.argv.includes("--invert");
+const plate = process.argv.includes("--lcd");
 const ON = invert ? "#c6c9cc" : "#2b2e31";
-const BG = invert ? "#2b2e31" : "#c6c9cc";
+const BG = plate ? (invert ? "#2b2e31" : "#c6c9cc") : null;
 const PER_ROW = 4;
 
 function panel(bitmap: Bitmap): string[] {

@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { fillBuf, renderScene, renderScreen } from "../packages/renderer/src/framebuffer";
+import { fillBuf, paintLcd, renderScene, renderScreen } from "../packages/renderer/src/framebuffer";
 import { stripAnsi } from "../packages/renderer/src/halfblock";
 import { COLS, PXH, roamBounds } from "../packages/renderer/src/lcd";
 import { BYTE } from "../pets/sprites/byte";
@@ -51,6 +51,30 @@ describe("fillBuf", () => {
     expect(buf[FEET_Y].slice(0, 8).every((v) => v === 0)).toBe(true);
     expect(buf[FEET_Y].slice(8, 24).some((v) => v === 1)).toBe(true);
     expect(buf[FEET_Y].slice(24).every((v) => v === 0)).toBe(true);
+  });
+});
+
+describe("transparent background (bg: null)", () => {
+  const buf = fillBuf(BYTE.poses.idleA, COLS, PXH);
+
+  it("paints no background colour codes anywhere", () => {
+    const joined = paintLcd(buf, { bg: null }).join("");
+    expect(joined).not.toContain("\x1b[48;2;");
+    expect(joined).toContain("\x1b[38;2;"); // ink foreground still styled
+  });
+
+  it("uses the four-glyph scheme — off pixels are bare spaces", () => {
+    const lines = paintLcd(buf, { bg: null });
+    expect(lines).toHaveLength(8);
+    for (const line of lines) expect(stripAnsi(line).length).toBe(COLS);
+    expect(lines.join("")).toMatch(/▄/); // bottom-only pixel (antenna stem)
+    expect(lines.join("")).toMatch(/█/); // top+bottom pixel (body edges)
+  });
+
+  it("an empty buffer prints only spaces (terminal untouched)", () => {
+    const empty = Array.from({ length: PXH }, () => Array<number>(COLS).fill(0));
+    const lines = paintLcd(empty, { bg: null });
+    for (const line of lines) expect(line).toBe(" ".repeat(COLS) + "\x1b[0m");
   });
 });
 
