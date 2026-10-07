@@ -4,7 +4,7 @@
 
 import type { Component, TUI } from "@earendil-works/pi-tui";
 import type { ExtensionContext } from "@earendil-works/pi-coding-agent";
-import { activePet, type GameState } from "../core";
+import { activePet, levelFromXp, xpProgress, type GameState } from "../core";
 import { BYTE } from "../../pets/sprites/byte";
 import { renderScreen } from "../renderer/src/framebuffer";
 import { COLS, CHAR_ROWS } from "../renderer/src/lcd";
@@ -50,14 +50,17 @@ class PetScreen implements Component {
     const lcd = renderScreen(frame, COLS, CHAR_ROWS);
     const c = pet.counters;
     const ageH = (pet.ageMs / 3_600_000).toFixed(1);
+    const prog = xpProgress(c.xp);
     return [
-      ` ${pet.name} (${pet.species}) — ${pet.activity}`,
+      ` ${pet.name} (${pet.species}) Lv.${levelFromXp(c.xp)} — ${pet.activity} · ${pet.behaviorMode.toLowerCase()}`,
       "",
       ...lcd.map((l) => " " + l),
       "",
+      ` xp ${prog.into}/${prog.span} (total ${c.xp}) · care mistakes ${pet.careMistakes}`,
+      ` traits — research ${pet.traits.research} · implementation ${pet.traits.implementation} · validation ${pet.traits.validation}`,
       ` reads ${c.reads} · searches ${c.searches} · writes ${c.writes} · commands ${c.commands}`,
       ` tests ${c.testsPassed} pass / ${c.testsFailed} fail · builds ${c.buildsPassed}/${c.buildsFailed}`,
-      ` tasks ${c.tasksCompleted} · corrections ${c.userCorrections} · age ${ageH}h · xp ${c.xp}`,
+      ` tasks ${c.tasksCompleted} · corrections ${c.userCorrections} · age ${ageH}h`,
       "",
       " q / ESC — close",
     ].map((l) => truncateVisible(l, width));

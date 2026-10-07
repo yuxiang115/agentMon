@@ -5,7 +5,7 @@
 
 import type { Component, TUI } from "@earendil-works/pi-tui";
 import type { ExtensionContext } from "@earendil-works/pi-coding-agent";
-import { activePet, type GameState } from "../core";
+import { activePet, levelFromXp, type GameState } from "../core";
 import { BYTE } from "../../pets/sprites/byte";
 import { renderScene } from "../renderer/src/framebuffer";
 import { COLS, CHAR_ROWS, roamBounds } from "../renderer/src/lcd";
@@ -78,7 +78,9 @@ export class PetWidget implements Component {
       COLS,
       CHAR_ROWS,
     );
-    return [`${pet.name} · ${pet.activity}`, ...lcd].map((l) => truncateVisible(l, width));
+    return [`${pet.name} Lv.${levelFromXp(pet.counters.xp)} · ${pet.activity}`, ...lcd].map((l) =>
+      truncateVisible(l, width),
+    );
   }
 
   invalidate(): void {

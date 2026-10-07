@@ -4,7 +4,7 @@
 //
 //   npm run session [-- --plain]
 
-import { addPet, createPet, freshState, reduceEvent, tick } from "../packages/core";
+import { addPet, createPet, freshState, levelFromXp, reduceEvent, tick } from "../packages/core";
 import type { CodingEvent, EventType } from "../packages/events/types";
 import { BYTE } from "../pets/sprites/byte";
 import { renderScreen } from "../packages/renderer/src/framebuffer";
@@ -62,7 +62,12 @@ console.log("\nlifetime tallies after one session:");
 console.log(
  `  reads=${c.reads} searches=${c.searches} thinks=${c.thinks} writes=${c.writes}` +
  ` commands=${c.commands} tests=${c.testsStarted} (${c.testsPassed}pass/${c.testsFailed}fail)` +
- ` tasks=${c.tasksCompleted}  xp=${c.xp} (Stage 4 awards it)`,
+ ` tasks=${c.tasksCompleted}`,
+);
+console.log(
+  `  xp=${c.xp} (Lv.${levelFromXp(c.xp)}) · care mistakes=${pet.careMistakes}` +
+    ` · traits R${pet.traits.research}/I${pet.traits.implementation}/V${pet.traits.validation}` +
+    ` · behavior=${pet.behaviorMode.toLowerCase()}`,
 );
 console.log(`  age=${(pet.ageMs / 1000).toFixed(0)}s`);
 

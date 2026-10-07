@@ -9,6 +9,7 @@
 // not here.
 
 import { randomUUID } from "node:crypto";
+import type { BehaviorKind, BehaviorMode, TraitScores } from "./traits";
 
 /** Activity vocabulary — the renderer's role table uses the same keys. */
 export type Activity =
@@ -21,6 +22,27 @@ export type Activity =
   | "happy"
   | "sad"
   | "sleep";
+
+/**
+ * One agent task (plan.md §19 "task boundaries"): opened lazily by the first
+ * work event of a run, closed by TASK_COMPLETE (or abandoned at SESSION_END).
+ * Feeds the XP bonuses and the care-mistake charges.
+ */
+export interface TaskWindow {
+  openedAt: number;
+  /** CODE_WRITE count inside the task. */
+  writes: number;
+  /** Test/build RUNS (starts) inside the task — ran validation at all. */
+  validations: number;
+  /** At least one test/build PASS inside the task. */
+  validated: boolean;
+  /** Any failure or user correction ever happened in the task. */
+  failedEver: boolean;
+  /** A failure with no pass after it yet. */
+  unresolvedFail: boolean;
+  /** Passes that actually earned XP (dirty-gated). */
+  rewardedPasses: number;
+}
 
 /**
  * Lifetime tallies. Stage 2 only counts; the rules that turn tallies into XP,
@@ -62,6 +84,18 @@ export interface PetState {
   /** Transient emotions (happy/sad) revert to idle at this time; else null. */
   emotionUntil: number | null;
   counters: Counters;
+  /** The open task window, if the agent is mid-task. */
+  task: TaskWindow | null;
+  /** Code was written since the last rewarded pass (XP dirty gate). */
+  dirty: boolean;
+  /** Lifetime care mistakes (plan.md §21 Care Quality). */
+  careMistakes: number;
+  /** Lifetime trait accumulation (plan.md §21 Behavior Profile). */
+  traits: TraitScores;
+  /** Rolling behavior samples (bounded, serializable). */
+  behaviorWindow: BehaviorKind[];
+  /** The window's current classification. */
+  behaviorMode: BehaviorMode;
 }
 
 export interface GameState {
@@ -110,6 +144,12 @@ export function createPet(opts: CreatePetOptions): PetState {
       userCorrections: 0,
       xp: 0,
     },
+    task: null,
+    dirty: false,
+    careMistakes: 0,
+    traits: { research: 0, implementation: 0, validation: 0 },
+    behaviorWindow: [],
+    behaviorMode: "STEADY",
   };
 }
 
