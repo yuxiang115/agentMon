@@ -37,6 +37,7 @@ function mockCtx(overrides: Record<string, unknown> = {}): any {
     sessionManager: { getSessionFile: () => "/sessions/s1.jsonl" },
     ui: {
       setWidget: vi.fn(),
+      setStatus: vi.fn(),
       notify: vi.fn(),
       custom: vi.fn(),
     },
@@ -149,6 +150,68 @@ describe("agentMon extension entry (C6: events really reach the pet)", () => {
     const ctx = mockCtx({ mode: "rpc", hasUI: false });
     await pi.commands.get("pet")!.handler("", ctx);
     expect(ctx.ui.notify).toHaveBeenCalledWith(expect.stringContaining("TUI"), "warning");
+  });
+
+  it("installs a non-capturing top-right overlay through the bridge widget", () => {
+    const pi = boot();
+    const ctx = mockCtx();
+    fire(pi, "session_start", {}, ctx);
+    expect(ctx.ui.setWidget).toHaveBeenCalledTimes(1);
+    const [key, factory] = ctx.ui.setWidget.mock.calls[0] as [string, (tui: unknown, theme: unknown) => unknown];
+    expect(key).toBe("agentmon-bridge");
+
+    const overlayHandle = { hide: vi.fn(), setHidden: vi.fn(), isHidden: () => false };
+    const showOverlay = vi.fn((..._args: unknown[]) => overlayHandle);
+    const bridge = (factory as (tui: unknown, theme: unknown) => { render(w: number): string[] })(
+      { requestRender: () => {}, showOverlay },
+      {},
+    );
+    expect(showOverlay).toHaveBeenCalledWith(
+      expect.anything(),
+      expect.objectContaining({ nonCapturing: true, anchor: "top-right" }),
+    );
+    expect(bridge.render(80)).toEqual([]); // the bridge renders nothing
+
+    const overlay = showOverlay.mock.calls[0]?.[0] as unknown as {
+      render(w: number): string[];
+      dispose(): void;
+    };
+    const lines = overlay.render(36);
+    expect(lines).toHaveLength(10); // border + 8 LCD rows + border
+    expect(lines[0]).toMatch(/^┌/);
+    expect(lines[0]).toContain("Byte");
+    expect(lines[9]).toMatch(/┘$/);
+    overlay.dispose();
+  });
+
+  it("the footer status follows events", () => {
+    const pi = boot();
+    const ctx = mockCtx();
+    fire(pi, "session_start", {}, ctx);
+    fire(pi, "tool_call", { toolCallId: "a", toolName: "read", input: {} }, ctx);
+    expect(ctx.ui.setStatus).toHaveBeenCalledWith("agentmon", expect.stringMatching(/Byte Lv\.1 · search/));
+  });
+
+  it("/pets ui toggles the overlay, /pets rename renames the pet", async () => {
+    const pi = boot();
+    const ctx = mockCtx();
+    fire(pi, "session_start", {}, ctx);
+    const [, factory] = ctx.ui.setWidget.mock.calls[0] as [
+      string,
+      (tui: unknown, theme: unknown) => unknown,
+    ];
+    const overlayHandle = { hide: vi.fn(), setHidden: vi.fn(), isHidden: () => false };
+    (factory as (tui: unknown, theme: unknown) => unknown)(
+      { requestRender: () => {}, showOverlay: () => overlayHandle },
+      {},
+    );
+
+    await pi.commands.get("pets")!.handler("ui", ctx);
+    expect(overlayHandle.setHidden).toHaveBeenCalledWith(true);
+    await pi.commands.get("pets")!.handler("rename Byte Jr", ctx);
+    expect(ctx.ui.notify).toHaveBeenCalledWith(expect.stringContaining("Byte Jr"), "info");
+    const state = JSON.parse(readStateFile(dir));
+    expect(state.pets[state.activePetId].name).toBe("Byte Jr");
   });
 
   it("state survives across extension restarts (reload)", () => {

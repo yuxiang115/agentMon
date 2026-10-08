@@ -60,9 +60,9 @@ Rules:
 ## Using a pack
 
 ```
-/pet list          # list every species (built-ins + packs)
-/pet use my-pet    # your active pet becomes that species (keeps XP/traits/history)
-/pet               # full view
+/pets list          # list every species (built-ins + packs)
+/pets use my-pet    # your active pet becomes that species (keeps XP/traits/history)
+/pet                # full view
 ```
 
 Pack species participate in the normal evolution system: if your pack defines `byte -> my-pet` gates and your agent's behavior qualifies, your pet evolves into it naturally.

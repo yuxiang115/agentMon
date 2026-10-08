@@ -1,7 +1,8 @@
-// The always-on pet LCD widget, installed via ctx.ui.setWidget's live
-// component-factory form (the snake.ts pattern — setInterval + requestRender).
-// Only type imports come from Pi; all runtime code is agentMon's own, so the
-// widget runs in vitest with a mock TUI.
+// The pet display: a NON-CAPTURING overlay pinned to the terminal's top-right
+// corner. Same bridge trick pi-pets uses: ctx.ui.setWidget's factory hands us
+// the TUI, we show the overlay from inside the factory, and the bridge widget
+// itself renders nothing — so the panel floats top-right while the editor
+// keeps full keyboard focus underneath.
 
 import type { Component, TUI } from "@earendil-works/pi-tui";
 import type { ExtensionContext } from "@earendil-works/pi-coding-agent";
@@ -12,10 +13,29 @@ import { COLS, CHAR_ROWS, roamBounds } from "../renderer/src/lcd";
 import { pickFrame, Roamer, HOLD, SLEEP_BEAT, TICK_MS, type Rng } from "../renderer/src/animation";
 import { stripAnsi } from "../renderer/src/halfblock";
 
-export interface WidgetOptions {
+export interface DisplayOptions {
   tickMs?: number;
   rng: Rng;
 }
+
+// Minimal structural types for the overlay API (verified against pi-tui's
+// tui.ts: showOverlay(component, options) -> OverlayHandle with hide/setHidden).
+interface OverlayHandleLike {
+  hide(): void;
+  setHidden(hidden: boolean): void;
+  isHidden(): boolean;
+}
+
+interface OverlayTuiLike {
+  requestRender(): void;
+  showOverlay(
+    component: Component,
+    options?: { nonCapturing?: boolean; anchor?: string; width?: number; margin?: { top?: number; right?: number } | number },
+  ): OverlayHandleLike;
+}
+
+/** border + padding + 32-col LCD + padding + border */
+export const OVERLAY_WIDTH = 36;
 
 /** Truncate to a visible column count, preserving ANSI escapes (width 0). */
 export function truncateVisible(line: string, width: number): string {
@@ -35,14 +55,20 @@ export function truncateVisible(line: string, width: number): string {
   return out + "…";
 }
 
-/** The LCD component itself; owns the animation clock and the roamer. */
-export class PetWidget implements Component {
+function padVisible(line: string, width: number): string {
+  const len = stripAnsi(line).length;
+  if (len >= width) return truncateVisible(line, width);
+  return line + " ".repeat(width - len);
+}
+
+/** The bordered LCD panel component. NO handleInput — it never captures keys. */
+export class PetOverlay implements Component {
   private roamer: Roamer;
   private timer: ReturnType<typeof setInterval> | undefined;
   private tickN = 0;
 
   constructor(
-    private tui: Pick<TUI, "requestRender">,
+    private tui: OverlayTuiLike,
     private getState: () => GameState,
     tickMs: number,
     rng: Rng,
@@ -79,9 +105,16 @@ export class PetWidget implements Component {
       COLS,
       CHAR_ROWS,
     );
-    return [`${pet.name} Lv.${levelFromXp(pet.counters.xp)} · ${pet.activity}`, ...lcd].map((l) =>
-      truncateVisible(l, width),
-    );
+
+    const w = Math.min(width, OVERLAY_WIDTH);
+    const inner = w - 2;
+    const title = ` ${pet.name} Lv.${levelFromXp(pet.counters.xp)} · ${pet.activity} `;
+    const fill = Math.max(1, inner - stripAnsi(title).length - 1);
+    return [
+      "┌─" + title + "─".repeat(fill) + "┐",
+      ...lcd.map((l) => "│ " + padVisible(l, inner - 2) + " │"),
+      "└" + "─".repeat(inner) + "┘",
+    ];
   }
 
   invalidate(): void {
@@ -94,39 +127,54 @@ export class PetWidget implements Component {
   }
 }
 
-/**
- * Install the widget; returns a handle valid even though Pi instantiates the
- * factory lazily when the TUI mounts. `refresh` forwards new state snapshots.
- */
-export interface PetWidgetHandle {
+export interface PetDisplayHandle {
   refresh(state: GameState): void;
+  /** Show/hide the panel; returns the new visibility. */
+  toggle(): boolean;
   dispose(): void;
 }
 
-export function installWidget(
+/**
+ * Install the top-right pet panel. The bridge widget is created immediately
+ * (giving us the TUI when Pi mounts it); the overlay itself is shown from
+ * inside the factory, exactly like pi-pets' non-capturing overlay.
+ */
+export function installPetDisplay(
   ctx: ExtensionContext,
   readState: () => GameState,
-  opts: WidgetOptions,
-): PetWidgetHandle {
-  let widget: PetWidget | undefined;
-  let latest: GameState | undefined;
-  ctx.ui.setWidget(
-    "agentmon",
-    (tui: TUI, _theme: unknown) => {
-      widget = new PetWidget(tui, () => latest ?? readState(), opts.tickMs ?? TICK_MS, opts.rng);
-      return widget;
-    },
-    { placement: "belowEditor" },
-  );
+  opts: DisplayOptions,
+): PetDisplayHandle {
+  let overlay: PetOverlay | undefined;
+  let handle: OverlayHandleLike | undefined;
+
+  ctx.ui.setWidget("agentmon-bridge", (tui: TUI, _theme) => {
+    const overlayTui = tui as unknown as OverlayTuiLike;
+    overlay = new PetOverlay(overlayTui, readState, opts.tickMs ?? TICK_MS, opts.rng);
+    handle = overlayTui.showOverlay(overlay, {
+      nonCapturing: true,
+      anchor: "top-right",
+      width: OVERLAY_WIDTH,
+      margin: { top: 1, right: 1 },
+    });
+    // the bridge itself renders nothing — the overlay is what users see
+    return { render: () => [], invalidate: () => {} };
+  });
+
   return {
     refresh(state: GameState) {
-      latest = state;
-      widget?.requestRender();
+      overlay?.requestRender();
+    },
+    toggle() {
+      if (!handle) return false;
+      handle.setHidden(!handle.isHidden());
+      return !handle.isHidden();
     },
     dispose() {
-      widget?.dispose();
-      widget = undefined;
-      ctx.ui.setWidget("agentmon", undefined);
+      overlay?.dispose();
+      overlay = undefined;
+      handle?.hide();
+      handle = undefined;
+      ctx.ui.setWidget("agentmon-bridge", undefined);
     },
   };
 }
