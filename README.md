@@ -22,7 +22,7 @@ Then just work: reads/writes/tests drive the pet, the LCD widget rides below the
 
 ## Pet packs — bring your own sprites
 
-The repo ships original creatures only. You can load your own sprites locally (e.g. extracted from your own DVPet copy, at your own responsibility — never commit them): drop a `pack.json` under `~/.pi/agent/agentmon/pets/`, then `/pets` to list, `/pet use <id>` to wear it. Packs may also define evolution rules that plug into the same gate system. Format reference: [`docs/pet-packs.md`](docs/pet-packs.md); validate a pack without Pi via `npm run packs`.
+The repo ships original creatures only. You can load your own sprites locally (e.g. extracted from your own DVPet copy, at your own responsibility — never commit them): drop a `pack.json` under `~/.pi/agent/agentmon/pets/`, then `/pet list` to list, `/pet use <id>` to wear it. Packs may also define evolution rules that plug into the same gate system. Format reference: [`docs/pet-packs.md`](docs/pet-packs.md); validate a pack without Pi via `npm run packs`.
 
 ## Rule #1 — do not reinvent
 

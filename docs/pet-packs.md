@@ -60,7 +60,7 @@ Rules:
 ## Using a pack
 
 ```
-/pets              # list every species (built-ins + packs)
+/pet list          # list every species (built-ins + packs)
 /pet use my-pet    # your active pet becomes that species (keeps XP/traits/history)
 /pet               # full view
 ```

@@ -67,7 +67,7 @@ export default function agentmon(pi: ExtensionAPI, options: AgentMonOptions = {}
     for (const error of packs.errors) console.warn(`agentMon: pet pack problem — ${error}`);
     if (packs.errors.length) {
       ctx.ui?.notify?.(
-        `agentMon: ${packs.errors.length} pet-pack problem(s) — run \`npm run packs\` or see docs/pet-packs.md`,
+        `agentMon: ${packs.errors.length} pet-pack problem(s) — see docs/pet-packs.md`,
         "warning",
       );
     }
@@ -133,15 +133,22 @@ export default function agentmon(pi: ExtensionAPI, options: AgentMonOptions = {}
   });
 
   pi.registerCommand("pet", {
-    description: "Open the agentMon pet view — or `/pet use <species>` to change form",
+    description: "agentMon pet view — /pet list species · /pet use <species>",
     handler: async (args: string, ctx: ExtensionContext) => {
       loadPacks(ctx);
       const parts = args.trim().split(/\s+/).filter(Boolean);
+      if (parts[0] === "list") {
+        const list = allSpecies()
+          .map((s) => `${s.id} (${s.name}, ${speciesSource(s.id)})`)
+          .join(", ");
+        ctx.ui?.notify?.(`agentMon species: ${list}`, "info");
+        return;
+      }
       if (parts[0] === "use" && parts[1]) {
         const id = parts[1];
         if (speciesSource(id) === "unknown") {
           ctx.ui?.notify?.(
-            `agentMon: unknown species "${id}" — /pets lists what's available`,
+            `agentMon: unknown species "${id}" — /pet list shows what's available`,
             "warning",
           );
           return;
@@ -169,17 +176,6 @@ export default function agentmon(pi: ExtensionAPI, options: AgentMonOptions = {}
         return;
       }
       await openPetView(ctx, () => store.read(now()), { tickMs: options.tickMs });
-    },
-  });
-
-  pi.registerCommand("pets", {
-    description: "List every agentMon species (built-ins + local pet packs)",
-    handler: async (_args: string, ctx: ExtensionContext) => {
-      loadPacks(ctx);
-      const list = allSpecies()
-        .map((s) => `${s.id} (${s.name}, ${speciesSource(s.id)})`)
-        .join(", ");
-      ctx.ui?.notify?.(`agentMon species: ${list}`, "info");
     },
   });
 }

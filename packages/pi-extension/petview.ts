@@ -66,7 +66,7 @@ class PetScreen implements Component {
       ` tests ${c.testsPassed} pass / ${c.testsFailed} fail · builds ${c.buildsPassed}/${c.buildsFailed}`,
       ` tasks ${c.tasksCompleted} · corrections ${c.userCorrections} · age ${ageH}h`,
       "",
-      " q / ESC — close · /pets list · /pet use <species>",
+      " q / ESC — close · /pet list · /pet use <species>",
     ].map((l) => truncateVisible(l, width));
   }
 

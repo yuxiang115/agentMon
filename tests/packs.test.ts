@@ -180,14 +180,14 @@ describe("extension integration — /pets and /pet use", () => {
     return pi;
   }
 
-  it("a dropped-in pack appears in /pets and /pet use swaps the species on disk", async () => {
+  it("a dropped-in pack appears in /pet list and /pet use swaps the species on disk", async () => {
     writePack("mypack", { species: [validSpeciesBody("sparky", "Sparky")] });
     const stateDir = join(root, "state");
     const pi = await boot(stateDir, packsDir);
     pi.handlers.get("session_start")!({}, ctx());
 
     const listCtx = ctx();
-    await pi.commands.get("pets")!.handler("", listCtx);
+    await pi.commands.get("pet")!.handler("list", listCtx);
     expect(listCtx.ui.notify).toHaveBeenCalledWith(
       expect.stringContaining("sparky"),
       "info",
