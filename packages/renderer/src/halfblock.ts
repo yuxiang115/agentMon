@@ -18,7 +18,77 @@ export function ink(c: string | undefined): boolean {
   return c === "1" || c === "#";
 }
 
-// --- ANSI 24-bit color helpers ---
+// --- ANSI 24-bit color helpers ---------------------------------------------
+//
+// Truecolor terminals get per-pixel 24-bit SGR; terminals without it (macOS
+// Terminal.app famously never sets COLORTERM and drops 38;2 sequences)
+// get the nearest xterm-256 index instead — the pet keeps its colours
+// instead of collapsing into unstyled glyph mush. The extension entry picks
+// the mode from the environment at startup; the renderer default stays
+// truecolor so tests are deterministic.
+
+export type ColorMode = "true" | "256";
+
+let colorMode: ColorMode = "true";
+
+export function setColorMode(mode: ColorMode): void {
+  colorMode = mode;
+}
+
+export function colorModeNow(): ColorMode {
+  return colorMode;
+}
+
+/**
+ * Detect what the terminal actually supports. AGENTMON_COLOR=256|trueforce
+ * an override; otherwise COLORTERM (truecolor/24bit) or a TERM advertising
+ * direct colour keeps 24-bit, and everything else gets the 256 palette.
+ */
+export function detectColorMode(env: NodeJS.ProcessEnv = process.env): ColorMode {
+  const forced = (env.AGENTMON_COLOR ?? "").toLowerCase();
+  if (forced === "256") return "256";
+  if (forced === "true") return "true";
+  const colorterm = (env.COLORTERM ?? "").toLowerCase();
+  if (colorterm.includes("truecolor") || colorterm.includes("24bit")) return "true";
+  const term = (env.TERM ?? "").toLowerCase();
+  if (term.includes("truecolor") || term.includes("direct")) return "true";
+  return "256";
+}
+
+// The xterm-256 palette: 16 ANSI base colours, a 6x6x6 colour cube, and a
+// 24-step grey ramp.
+const XTERM_256: ReadonlyArray<readonly [number, number, number]> = (() => {
+  const palette: Array<readonly [number, number, number]> = [
+    [0, 0, 0], [205, 0, 0], [0, 205, 0], [205, 205, 0], [0, 0, 238], [205, 0, 205],
+    [0, 205, 205], [229, 229, 229], [127, 127, 127], [255, 0, 0], [0, 255, 0], [255, 255, 0],
+    [92, 92, 255], [255, 0, 255], [0, 255, 255], [255, 255, 255],
+  ];
+  const ramp = [0, 95, 135, 175, 215, 255];
+  for (const r of ramp) for (const g of ramp) for (const b of ramp) palette.push([r, g, b]);
+  for (let i = 0; i < 24; i++) palette.push([8 + i * 10, 8 + i * 10, 8 + i * 10]);
+  return palette;
+})();
+
+const quantCache = new Map<string, number>();
+
+/** Nearest xterm-256 palette index for a #rrggbb colour. */
+export function quantize256(hex: string): number {
+  const cached = quantCache.get(hex);
+  if (cached !== undefined) return cached;
+  const [r, g, b] = hexToRgb(hex);
+  let best = 0;
+  let bestD = Infinity;
+  for (let i = 0; i < XTERM_256.length; i++) {
+    const [pr, pg, pb] = XTERM_256[i]!;
+    const d = (r - pr) ** 2 + (g - pg) ** 2 + (b - pb) ** 2;
+    if (d < bestD) {
+      bestD = d;
+      best = i;
+    }
+  }
+  quantCache.set(hex, best);
+  return best;
+}
 
 export function hexToRgb(hex: string): [number, number, number] {
   const h = hex.replace("#", "");
@@ -30,11 +100,13 @@ export function hexToRgb(hex: string): [number, number, number] {
 }
 
 export function fgColor(hex: string): string {
+  if (colorMode === "256") return `\x1b[38;5;${quantize256(hex)}m`;
   const [r, g, b] = hexToRgb(hex);
   return `\x1b[38;2;${r};${g};${b}m`;
 }
 
 export function bgColor(hex: string): string {
+  if (colorMode === "256") return `\x1b[48;5;${quantize256(hex)}m`;
   const [r, g, b] = hexToRgb(hex);
   return `\x1b[48;2;${r};${g};${b}m`;
 }

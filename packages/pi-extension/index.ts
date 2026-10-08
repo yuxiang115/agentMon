@@ -30,6 +30,7 @@ import { installPetDisplay, petSizeOf, clampPetSize, type PetDisplayHandle } fro
 import { openPetView } from "./petview";
 import { openDebugView, type TraceEntry } from "./debug";
 import { mulberry32 } from "../renderer/src/animation";
+import { detectColorMode, setColorMode } from "../renderer/src/halfblock";
 import { loadPetPacks } from "../../pets/packs";
 import { smartImportPet } from "../../pets/ingest";
 import {
@@ -58,6 +59,10 @@ function defaultStateDir(): string {
 
 export default function agentmon(pi: ExtensionAPI, options: AgentMonOptions = {}): void {
   const now = options.now ?? Date.now;
+  // macOS Terminal.app drops 24-bit SGR (no COLORTERM) — fall back to the
+  // xterm-256 palette there so the pet keeps its colours. AGENTMON_COLOR
+  // forces a mode; truecolor terminals are untouched.
+  setColorMode(detectColorMode());
   const store = new PetStore(join(options.stateDir ?? defaultStateDir(), "state.json"));
   const packsDir = options.packsDir ?? join(dirname(store.path), "pets");
   const adapter = new PiAdapter();

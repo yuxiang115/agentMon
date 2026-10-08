@@ -398,7 +398,9 @@ describe("growth notices + evolution fx", () => {
       const lines = overlay.render(60);
       const text = lines.join(String.fromCharCode(10));
       expect(text).toContain("evolving");
-      expect(text).toContain(String.fromCharCode(27) + "[38;2;");
+      // coloured pixels in whichever mode the entry detected for this terminal
+      const E = String.fromCharCode(27);
+      expect(text.includes(E + "[38;2;") || text.includes(E + "[38;5;")).toBe(true);
       overlay.dispose();
     } finally {
       rmSync(dir2, { recursive: true, force: true });
