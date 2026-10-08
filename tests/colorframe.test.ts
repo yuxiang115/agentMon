@@ -50,6 +50,18 @@ describe("renderColorScene — pi-pets-style cells", () => {
     expect(lines[1]).toContain(`\x1b[38;2;0;0;255m${LOWER}`); // pixel row 3: bottom only
   });
 
+  it("every coloured cell resets immediately — no bg bleeding into trailing spaces", () => {
+    const g = poseToColorGrid(
+      ["..a.............", "..b............."].concat(Array(14).fill("................")),
+      { a: "#ff0000", b: "#0000ff" },
+    );
+    const lines = renderColorScene([{ grid: g, xLeft: 0 }], 16, 8);
+    // the split cell resets right after the glyph, and the rest of the row is bare spaces
+    expect(lines[0]).toContain(`\x1b[38;2;255;0;0m\x1b[48;2;0;0;255m${UPPER}\x1b[0m `);
+    const after = lines[0]!.slice(lines[0]!.indexOf(`m${UPPER}\x1b[0m `) + UPPER.length + 5);
+    expect(after).toBe(" ".repeat(13)); // nothing but spaces to the row's end
+  });
+
   it("mirrors the placement horizontally", () => {
     const g = poseToColorGrid(
       ["..a.............", "................"].concat(Array(14).fill("................")),

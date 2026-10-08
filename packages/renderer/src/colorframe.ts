@@ -36,10 +36,12 @@ export function poseToColorGrid(
 
 function cell(top: string | null, bottom: string | null): string {
   if (!top && !bottom) return " ";
-  if (!top) return fgColor(bottom!) + LOWER; // ▄ in the bottom pixel's colour
-  if (!bottom) return fgColor(top) + UPPER; // ▀ in the top pixel's colour
-  if (top === bottom) return fgColor(top) + FULL; // █ solid
-  return fgColor(top) + bgColor(bottom) + UPPER; // split cell
+  // every coloured cell resets immediately — a bg colour would otherwise
+  // bleed across the following transparent cells (the "long shadow" bug)
+  if (!top) return fgColor(bottom!) + LOWER + RESET; // ▄ in the bottom pixel's colour
+  if (!bottom) return fgColor(top) + UPPER + RESET; // ▀ in the top pixel's colour
+  if (top === bottom) return fgColor(top) + FULL + RESET; // █ solid
+  return fgColor(top) + bgColor(bottom) + UPPER + RESET; // split cell
 }
 
 /**
@@ -75,7 +77,7 @@ export function renderColorScene(
     for (let cx = 0; cx < cols; cx++) {
       line += cell(canvas[cy * 2]![cx], canvas[cy * 2 + 1]![cx]);
     }
-    lines.push(line.includes("\x1b[") ? line + RESET : line);
+    lines.push(line);
   }
   return lines;
 }
