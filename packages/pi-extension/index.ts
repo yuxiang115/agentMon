@@ -13,7 +13,7 @@
 
 import type { ExtensionAPI, ExtensionContext } from "@earendil-works/pi-coding-agent";
 import { homedir } from "node:os";
-import { dirname, join } from "node:path";
+import { dirname, join, resolve } from "node:path";
 import {
   addPet,
   createPet,
@@ -29,14 +29,14 @@ import { installPetDisplay, type PetDisplayHandle } from "./widget";
 import { openPetView } from "./petview";
 import { openDebugView, type TraceEntry } from "./debug";
 import { mulberry32 } from "../renderer/src/animation";
-import { loadPetPacks } from "../../pets/packs";
+import { loadPetPacks, importPetPack } from "../../pets/packs";
 import {
   allSpecies,
   registerSpecies,
   speciesFor,
   speciesSource,
 } from "../../pets/registry";
-import { registerEvolutionRules } from "../core/evolution";
+import { registerEvolutionRules, type EvolutionRule } from "../core/evolution";
 
 export interface AgentMonOptions {
   /** Where state.json lives. Default: <pi agent dir>/agentmon. */
@@ -66,6 +66,14 @@ export default function agentmon(pi: ExtensionAPI, options: AgentMonOptions = {}
   /** Ring of recent raw-Pi-event -> mapped-event decisions, for /pets debug. */
   const trace: TraceEntry[] = [];
   const TRACE_LIMIT = 50;
+  /** Evolution rules register once per pack slug (imports may re-run loading). */
+  const registeredRuleSlugs = new Set<string>();
+
+  function registerPackRules(slug: string, rules: readonly EvolutionRule[]): void {
+    if (!rules.length || registeredRuleSlugs.has(slug)) return;
+    registeredRuleSlugs.add(slug);
+    registerEvolutionRules([...rules]);
+  }
 
   function traced(source: string, mapped: string[]): void {
     trace.push({ at: now(), source, mapped });
@@ -77,7 +85,7 @@ export default function agentmon(pi: ExtensionAPI, options: AgentMonOptions = {}
     packsLoaded = true;
     const packs = loadPetPacks(packsDir);
     if (packs.species.length) registerSpecies(...packs.species);
-    if (packs.rules.length) registerEvolutionRules(packs.rules);
+    for (const pack of packs.packs) registerPackRules(pack.slug, pack.rules);
     for (const pack of packs.packs) {
       console.warn(`agentMon: pet pack "${pack.name}" loaded (${pack.species.length} species)`);
     }
@@ -191,7 +199,7 @@ export default function agentmon(pi: ExtensionAPI, options: AgentMonOptions = {}
   });
 
   pi.registerCommand("pets", {
-    description: "agentMon pets — list · use <species> · ui · rename <name> · debug · help",
+    description: "agentMon pets — list · use <species> · import <path> · ui · rename <name> · debug · help",
     getArgumentCompletions: (prefix: string) => {
       const p = prefix.trim();
       if (p.startsWith("use")) {
@@ -205,7 +213,7 @@ export default function agentmon(pi: ExtensionAPI, options: AgentMonOptions = {}
             description: `${s.name} (${speciesSource(s.id)})`,
           }));
       }
-      return ["list", "use", "ui", "rename", "debug", "help"]
+      return ["list", "use", "ui", "rename", "import", "debug", "help"]
         .filter((s) => s.startsWith(p))
         .map((s) => ({ value: s, label: s }));
     },
@@ -216,7 +224,7 @@ export default function agentmon(pi: ExtensionAPI, options: AgentMonOptions = {}
 
       if (sub === "help" || sub === "") {
         ctx.ui?.notify?.(
-          "agentMon /pets — list: species · use <id>: wear a form · ui: toggle the panel · rename <name>",
+          "agentMon /pets — list: species · use <id>: wear a form · import <path> [names]: add a pack · ui: toggle the panel · rename <name>",
           "info",
         );
         return;
@@ -255,6 +263,29 @@ export default function agentmon(pi: ExtensionAPI, options: AgentMonOptions = {}
         display?.refresh(state);
         ui?.setStatus?.("agentmon", footerStatus(state));
         ctx.ui?.notify?.(`agentMon: your pet is now a ${species.name}!`, "info");
+        return;
+      }
+
+      if (sub === "import" && parts[1]) {
+        const src = resolve(ctx.cwd ?? process.cwd(), parts[1]);
+        const names = parts
+          .slice(2)
+          .join(" ")
+          .split(",")
+          .map((s) => s.trim())
+          .filter(Boolean);
+        const result = importPetPack(src, packsDir, { names, chain: true });
+        if (!result.ok) {
+          ctx.ui?.notify?.(`agentMon: import failed — ${result.errors.join("; ")}`, "warning");
+          return;
+        }
+        if (result.species?.length) registerSpecies(...result.species);
+        if (result.slug) registerPackRules(result.slug, result.rules ?? []);
+        const ids = result.species?.map((s) => s.id).join(", ") ?? "";
+        ctx.ui?.notify?.(
+          `agentMon: imported ${ids} — /pets use <id> to wear it${result.errors.length ? ` (other packs have problems: ${result.errors.length})` : ""}`,
+          "info",
+        );
         return;
       }
 

@@ -1,13 +1,12 @@
 # 宠物包模板（Sample Pack）
 
-这是一个**完整可用的宠物包模板**——把它整个文件夹拷到你的宠物目录即可生效：
+这是一个**完整可用的宠物包模板**。最简单的试用方式——在 Pi 里直接执行：
 
 ```
-Windows: %USERPROFILE%\.pi\agent\agentmon\pets\
-Linux/Mac: ~/.pi/agent/agentmon/pets/
+/pets import C:\path\to\agentMon\examples\pet-pack
 ```
 
-拷贝后在 Pi 里执行 `/pets list` 应该能看到 `sample`，`/pets use sample` 立刻换上。确认流程通了以后，把 `pack.json` 里的内容换成你自己的。
+（路径指向这个文件夹即可，也可以直接指向 `pack.json` 文件。）导入后 `/pets list` 应该能看到 `sample`，`/pets use sample` 立刻换上。确认流程通了以后，把 `pack.json` 里的内容换成你自己的。手动把这个文件夹拷到 `~/.pi/agent/agentmon/pets/` 下面也可以，效果相同。
 
 > 模板里的精灵图是 agentMon 自创的 Byte（原创素材，可以随便抄）。
 > **如果你导入的是数码宝贝等商业角色的提取素材：那些图版权归 Bandai 等权利方，只能放在你自己机器上私用，绝不要提交到任何公开仓库。**
@@ -86,12 +85,13 @@ Linux/Mac: ~/.pi/agent/agentmon/pets/
 
 ## 三种导入方式
 
-1. **手写/手改**：复制这个模板，替换 poses 里的行。
-2. **从 tuipet/DVPet 提取文件一键转换**（你自己的提取数据）：
-   ```
-   npm run pack:from-tuipet -- --sprites path/to/sprites.json --names "亚古兽名,暴龙兽名" --chain
-   ```
-   也支持 `.json.gz`；`--chain` 自动串进化链（byte→第一只→第二只…）；帧位映射可用 `--map "think=3,codeA=7"` 调整（默认映射见 docs/pet-packs.md）。
-3. **校验**：`npm run packs`（或 `--dir 指定目录`）检查格式错误。
+1. **命令导入（推荐）**：`/pets import <pack.json 或文件夹路径>`——自动安装、校验、即时生效。
+2. **从 tuipet/DVPet 提取文件导入**（你自己的提取数据）：
+   - Pi 里：`/pets import path/to/sprites.json 亚古兽名,暴龙兽名`（自动串进化链）
+   - 或命令行：`npm run pack:from-tuipet -- --sprites path/to/sprites.json --names "Agumon,Greymon" --chain`
+   - 支持 `.json` 和 `.json.gz`；帧位映射可用 `--map "think=3,codeA=7"` 调整（默认映射见 docs/pet-packs.md）。
+3. **手写/手改**：复制这个模板，替换 poses 里的行，然后 `/pets import` 或放进 `~/.pi/agent/agentmon/pets/`。
+
+校验：`npm run packs`（或 `--dir 指定目录`）。
 
 验证细节和完整规则见仓库根的 [docs/pet-packs.md](../../docs/pet-packs.md)。

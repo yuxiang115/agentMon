@@ -72,7 +72,8 @@ function normalizeFrame(rows: readonly string[] | null | undefined, fallback: re
 }
 
 export interface TuipetImportOptions {
-  map: Record<PoseName, number>;
+  /** Frame-index overrides; defaults to DEFAULT_TUIPET_POSE_MAP. */
+  map?: Record<PoseName, number>;
   packName?: string;
   /** Auto-chain byte -> name1 -> name2 ... with gentle default gates. */
   chain?: boolean;
@@ -100,6 +101,7 @@ export function tuipetRecordsToPack(
 ): TuipetImportResult {
   const warnings: string[] = [];
   const missing: string[] = [];
+  const map = opts.map ?? DEFAULT_TUIPET_POSE_MAP;
   const byName = new Map(records.map((r) => [r.name.toLowerCase(), r]));
 
   const species: Array<Record<string, unknown>> = [];
@@ -118,7 +120,7 @@ export function tuipetRecordsToPack(
     const base = normalizeFrame(frames[0], []);
     const poses: Record<string, string[]> = {};
     for (const pose of POSE_NAMES) {
-      const idx = opts.map[pose];
+      const idx = map[pose];
       const chosen = frames[idx] ?? frames[0];
       if (!chosen) {
         poses[pose] = base;

@@ -8,11 +8,13 @@
 // an error message, never a crash in the host agent (the tamagotchi lesson,
 // audit C6). Format (pet-pack format spirit after AgentPet's pet.json):
 
-import { existsSync, readdirSync, readFileSync } from "node:fs";
-import { join } from "node:path";
+import { existsSync, mkdirSync, readFileSync, readdirSync, rmSync, writeFileSync } from "node:fs";
+import { gunzipSync } from "node:zlib";
+import { basename, join } from "node:path";
 import type { Bitmap } from "../packages/renderer/src/halfblock";
 import { POSE_NAMES, SPECIES, type PoseName, type SpeciesDef } from "./registry";
 import type { EvolutionGates, EvolutionRule, TraitAxis } from "../packages/core/evolution";
+import { slugify, tuipetRecordsToPack, type TuipetSpriteRecord } from "./convert";
 
 /** The standard coding role table, used when a pack omits `roles`. */
 export const DEFAULT_ROLES: Record<string, PoseName[]> = {
@@ -219,6 +221,105 @@ export function loadPetPacks(dir: string): PetPackLoadResult {
       continue;
     }
     result.rules.push(rule);
+    result.packs.find((p) => p.slug === context)?.rules.push(rule);
   }
   return result;
+}
+
+// --- /pets import — install a pack from any path, in one step ---------------
+
+export interface ImportOptions {
+  /** Creature names for a tuipet sprites.json(.gz) source (comma-split). */
+  names?: readonly string[];
+  /** Auto-chain evolutions (byte -> first -> second ...) for tuipet imports. */
+  chain?: boolean;
+}
+
+export interface ImportResult {
+  ok: boolean;
+  /** Installed pack slug (also the folder name under petsDir). */
+  slug?: string;
+  /** Validated species/rules, ready for immediate registration. */
+  species?: SpeciesDef[];
+  rules?: EvolutionRule[];
+  errors: string[];
+}
+
+function readMaybeGzip(path: string): Buffer {
+  const raw = readFileSync(path);
+  if (path.endsWith(".gz") || raw[0] === 0x1f) return gunzipSync(raw);
+  return raw;
+}
+
+/**
+ * Import a pet pack from `srcPath` — a pack.json file, a directory containing
+ * one, or a tuipet sprites.json(.gz) extraction (which needs `names`). The
+ * pack is installed under `petsDir/<slug>/pack.json`, validated with the real
+ * loader, and rolled back if it does not load cleanly.
+ */
+export function importPetPack(srcPath: string, petsDir: string, opts: ImportOptions = {}): ImportResult {
+  const fail = (errors: string[]): ImportResult => ({ ok: false, errors });
+  let target = srcPath;
+  try {
+    const entries = readdirSync(srcPath, { withFileTypes: true }); // throws when not a directory
+    if (!entries.some((e) => e.isFile() && e.name === "pack.json")) {
+      return fail([`${srcPath}: directory has no pack.json`]);
+    }
+    target = join(srcPath, "pack.json");
+  } catch {
+    // not a directory — treat srcPath itself as the pack file
+  }
+  if (!existsSync(target)) return fail([`${srcPath}: file not found`]);
+
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(readMaybeGzip(target).toString("utf8"));
+  } catch (e) {
+    return fail([`${basename(target)}: not valid JSON (${(e as Error).message})`]);
+  }
+
+  let pack: Record<string, unknown>;
+  if (Array.isArray(parsed)) {
+    // tuipet sprite records — conversion required
+    if (!opts.names?.length) {
+      return fail([
+        `${basename(target)}: tuipet sprite extraction — add creature names: /pets import <file> Name1,Name2`,
+      ]);
+    }
+    const converted = tuipetRecordsToPack(parsed as TuipetSpriteRecord[], opts.names, {
+      chain: opts.chain,
+    });
+    if (converted.missing.length) {
+      return fail([`not found in file: ${converted.missing.join(", ")}`]);
+    }
+    pack = converted.pack as Record<string, unknown>;
+  } else if (typeof parsed === "object" && parsed !== null && Array.isArray((parsed as { species?: unknown }).species)) {
+    pack = parsed as Record<string, unknown>;
+  } else {
+    return fail([`${basename(target)}: neither a pack ({"species": [...]}) nor a tuipet sprite array`]);
+  }
+
+  const slug = slugify(
+    typeof pack.name === "string" && pack.name.trim() ? pack.name : basename(target, ".json"),
+  );
+  const packDir = join(petsDir, slug);
+  const file = join(packDir, "pack.json");
+  mkdirSync(packDir, { recursive: true });
+  writeFileSync(file, JSON.stringify(pack, null, 2), "utf8");
+
+  // Validate with the real loader; roll back if THIS pack has problems.
+  const check = loadPetPacks(petsDir);
+  const ours = check.errors.filter((e) => e.startsWith(`${slug}:`) || e.startsWith(`${slug}/`));
+  if (ours.length) {
+    rmSync(packDir, { recursive: true, force: true });
+    return fail(ours);
+  }
+  const installed = check.packs.find((p) => p.slug === slug);
+  return {
+    ok: true,
+    slug,
+    species: installed?.species ?? [],
+    rules: installed?.rules ?? [],
+    errors: check.errors.filter((e) => !(e.startsWith(`${slug}:`) || e.startsWith(`${slug}/`))),
+  };
 }
