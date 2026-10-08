@@ -21,9 +21,9 @@ import {
   buildImagePack,
   pngToBitmap,
   posesFromFrames,
+  posesFromFolder,
   sheetToBitmaps,
 } from "../pets/imagepack";
-import type { PoseName } from "../pets/registry";
 import { loadPetPacks } from "../pets/packs";
 import { slugify } from "../pets/convert";
 
@@ -41,7 +41,7 @@ if (!imgArg || !name) {
   );
   process.exit(1);
 }
-const threshold = Number(arg("--threshold") ?? 140);
+const threshold = Number(arg("--threshold") ?? 60); // colour distance from background (see pets/imagepack.ts)
 const chain = process.argv.includes("--chain");
 const stage = (arg("--stage") === "baby" ? "baby" : "branch") as "baby" | "branch";
 const defaultOut = join(
@@ -51,27 +51,14 @@ const defaultOut = join(
 );
 const outDir = arg("--out") ?? defaultOut;
 
-const POSE_FILES: Record<PoseName, string[]> = {
-  idleA: ["idleA", "idlea", "idle-a", "idle_a"],
-  idleB: ["idleB", "idleb", "idle-b", "idle_b"],
-  think: ["think"],
-  search: ["search"],
-  codeA: ["codeA", "codea", "code-a", "code_a"],
-  codeB: ["codeB", "codeb", "code-b", "code_b"],
-  testA: ["testA", "testa", "test-a", "test_a"],
-  testB: ["testB", "testb", "test-b", "test_b"],
-  happy: ["happy"],
-  sad: ["sad"],
-  sleep: ["sleep"],
-};
-
 function decode(file: string): PNG {
   const png = PNG.sync.read(readFileSync(file));
   if (!png.width || !png.height) throw new Error(`${file}: empty image`);
   return png;
 }
 
-let poses: Record<PoseName, string[]>;
+let poses: Record<string, string[]>;
+let roles: Record<string, string[]> | undefined;
 try {
   let entries: Dirent[] | null = null;
   try {
@@ -81,20 +68,21 @@ try {
   }
 
   if (entries && !imgArg.toLowerCase().endsWith(".png")) {
-    // pose-named folder
-    poses = {} as Record<PoseName, string[]>;
-    const files = entries.filter((e) => e.isFile()).map((e) => e.name);
-    for (const [pose, candidates] of Object.entries(POSE_FILES) as Array<[PoseName, string[]]>) {
-      const hit = files.find((f) =>
-        candidates.some((c) => f.toLowerCase() === `${c}.png` || f.toLowerCase() === `${c}.jpg`),
-      );
-      if (!hit) {
-        console.error(`✗ folder is missing ${pose}.png`);
-        process.exit(1);
-      }
-      poses[pose] = pngToBitmap(decode(join(imgArg, hit)), { threshold });
+    // pose folder: idle1.png idle2.png ... code1.png ... (any subset, idle required)
+    const folder = posesFromFolder(imgArg, { threshold });
+    if (folder.error) {
+      console.error(`✗ ${imgArg}: ${folder.error}`);
+      process.exit(1);
     }
-    console.log("pose folder: 11 named images mapped 1:1");
+    poses = folder.poses;
+    roles = folder.roles;
+    console.log(
+      "pose folder: " +
+        Object.entries(folder.counts)
+          .map(([a, n]) => `${a}×${n}`)
+          .join(" ") +
+        " (missing activities fall back to idle)",
+    );
   } else {
     if (!existsSync(imgArg)) {
       console.error(`✗ ${imgArg}: not found`);
@@ -116,7 +104,7 @@ try {
   process.exit(1);
 }
 
-const pack = buildImagePack(poses, { name, id: arg("--id"), stage, chain });
+const pack = buildImagePack(poses, { name, id: arg("--id"), stage, chain, roles });
 const slug = slugify(String(pack.name));
 const packDir = join(outDir, slug);
 mkdirSync(packDir, { recursive: true });
@@ -131,9 +119,10 @@ if (ours.length) {
   process.exit(1);
 }
 const id = (pack.species as Array<{ id: string }>)[0]!.id;
-const ink = poses.idleA.join("").split("").filter((c) => c === "#").length;
+const sampleKey = roles?.idle?.[0] ?? Object.keys(poses)[0]!;
+const ink = poses[sampleKey]!.join("").split("").filter((c) => c === "#").length;
 console.log(`wrote ${file}`);
-console.log(`  species ${id} (${ink} ink pixels in idleA), validation OK`);
+console.log(`  species ${id} (${ink} ink pixels in ${sampleKey}), validation OK`);
 console.log(`next: in pi run  /pets import ${file}  (or just /reload), then /pets use ${id}`);
 if (basename(imgArg).toLowerCase().includes("agumon") || /digimon|agumon/i.test(name)) {
   console.log(`reminder: Digimon designs are © Bandai — keep this pack local, never commit it.`);

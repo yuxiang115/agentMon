@@ -70,20 +70,27 @@ function parseSpecies(
   }
   const name = typeof s.name === "string" && s.name.trim() ? s.name.trim() : id;
   const stage = s.stage === "baby" ? "baby" : "branch";
-  const poses: Partial<Record<PoseName, Bitmap>> = {};
+  const poses: Record<string, Bitmap> = {};
   if (typeof s.poses !== "object" || s.poses === null) {
     errors.push(`${context}/${id}: missing poses`);
     return null;
   }
-  for (const poseName of POSE_NAMES) {
-    const pose = (s.poses as Record<string, unknown>)[poseName];
+  for (const [poseName, pose] of Object.entries(s.poses as Record<string, unknown>)) {
+    if (!/^[A-Za-z][A-Za-z0-9_-]{0,31}$/.test(poseName)) {
+      errors.push(`${context}/${id}: bad pose name "${poseName}" (letters/digits/dashes, max 32)`);
+      return null;
+    }
     if (!validPose(pose)) {
       errors.push(`${context}/${id}: pose ${poseName} must be 16 rows of 16 chars of 1/0/#/. with ink`);
       return null;
     }
     poses[poseName] = pose as Bitmap;
   }
-  let roles = DEFAULT_ROLES;
+  if (!Object.keys(poses).length) {
+    errors.push(`${context}/${id}: no poses`);
+    return null;
+  }
+  let roles: Record<string, string[]>;
   if (s.roles !== undefined) {
     if (typeof s.roles !== "object" || s.roles === null) {
       errors.push(`${context}/${id}: roles must be an object`);
@@ -94,20 +101,35 @@ function parseSpecies(
       if (
         !Array.isArray(posesList) ||
         posesList.length === 0 ||
-        !posesList.every((p) => typeof p === "string" && (POSE_NAMES as readonly string[]).includes(p))
+        !posesList.every((p) => typeof p === "string" && poses[p as string])
       ) {
-        errors.push(`${context}/${id}: roles.${activity} must be a non-empty list of pose names`);
+        errors.push(
+          `${context}/${id}: roles.${activity} must be a non-empty list of pose names that exist in poses`,
+        );
         return null;
       }
-      roles[activity] = posesList as PoseName[];
+      roles[activity] = posesList as string[];
     }
+    if (!roles.idle) {
+      errors.push(`${context}/${id}: roles must include "idle" (the renderer's fallback)`);
+      return null;
+    }
+  } else {
+    // no roles declared: the default coding table needs the canonical 11
+    for (const poseName of POSE_NAMES) {
+      if (!poses[poseName]) {
+        errors.push(`${context}/${id}: missing pose ${poseName} (or provide roles covering "idle")`);
+        return null;
+      }
+    }
+    roles = DEFAULT_ROLES;
   }
   return {
     id,
     name,
     stage,
     description: typeof s.description === "string" ? s.description : undefined,
-    poses: poses as Record<PoseName, Bitmap>,
+    poses,
     roles,
   };
 }

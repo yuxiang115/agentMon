@@ -51,8 +51,9 @@ One file per pack. `species` is required; `evolutions` is optional.
 
 Rules:
 
-- **Poses**: every species needs all 11 poses; each pose is exactly 16 rows of 16 characters, ink `1` or `#`, blank `0` or `.`. Ground the feet on row 13 (rows 14–15 empty) so the pet lines up with the built-ins.
-- **roles** is optional — omit it to get the standard coding role table.
+- **Poses**: each pose is exactly 16 rows of 16 characters, ink `1` or `#`, blank `0` or `.`. Ground the feet on row 13 (rows 14–15 empty) so the pet lines up with the built-ins.
+- **Pose names are free-form** when you declare `roles` — use as many frames per activity as you like (`idle1..idle4`, `code1..code3`, ...); the animator cycles each activity's loop at ~3 switches/sec. Without `roles`, the default coding table applies and all 11 canonical poses (`idleA idleB think search codeA codeB testA testB happy sad sleep`) are required.
+- **roles** must reference pose names that exist and must include `idle` (the renderer's fallback for unknown activities). `walk` defaults to the idle loop if omitted.
 - **id** must be lowercase letters/digits/dashes. A pack id may intentionally **reskin a built-in** (e.g. replace `byte`); the pack wins.
 - **evolutions** use the same multi-gate system as the built-ins (`packages/core/evolution.ts`). `from`/`to` may reference built-in or pack species; `axis` is one of `research` / `implementation` / `validation`; `minValidatedRatio` is optional (Guardian-style discipline gate).
 - A broken pack is skipped with a warning — it can never crash the host agent.
@@ -96,18 +97,19 @@ npm run pack:from-tuipet -- --sprites path/to/sprites.json --names "Agumon,Greym
 
 ### From any PNG image (no hand-assembling grids)
 
-Skip the character grids entirely — feed an image:
+Skip the character grids entirely — feed an image. **Have GPT (or any generator) draw the frames?** See [`docs/gpt-image-spec.md`](gpt-image-spec.md) for the ready-to-paste prompt and the numbered file list (`idle1.png idle2.png ... code1.png code2.png ...`) — any number of frames per state:
 
 ```
+npm run pack:from-image -- --img pose-folder/ --name 亚古兽 --id agumon --chain
 npm run pack:from-image -- --img agumon.png --name 亚古兽 --id agumon --chain
 npm run pack:from-image -- --img sheet.png --frames 11 --name Agumon
-npm run pack:from-image -- --img pose-folder/ --name Agumon
 ```
 
+- **pose folder**: images named `<activity><N>.png` (idle1..idle4, code1..code3, think1...; only `idle` is required — missing activities fall back to the idle loop); legacy names (idleA/codeB/think.png...) also accepted
 - **single PNG**: all 11 poses auto-derived (bounces/mirror/slump) — any illustration becomes a living pet in seconds
 - **`--frames N`**: horizontal sprite sheet; an 11-frame strip maps with the tuipet pose table below
-- **pose folder**: images named `idleA.png idleB.png think.png search.png codeA.png codeB.png testA.png testB.png happy.png sad.png sleep.png` map 1:1
-- images are area-averaged into 16×14 and grounded like the built-ins; ink = alpha ≥ 0.5 and luminance below `--threshold` (default 140; raise it for pale art)
+- ink = auto-detected: transparent backgrounds mean "any opaque pixel"; opaque (e.g. white GPT) backgrounds mean "colour far enough from the background" — `--threshold` is that distance (default 60; lower it if art comes out blank)
+- images are area-averaged into 16×14 and grounded like the built-ins
 - `--out` defaults to the real pets directory, so after generating you only need `/reload` — or `/pets import <generated pack.json>` for instant registration
 
 Default frame mapping (tuipet's 11-frame strip → agentMon poses):

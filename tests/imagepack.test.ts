@@ -6,7 +6,9 @@ import { join } from "node:path";
 import {
   autoPoses,
   buildImagePack,
+  collectActivityFiles,
   pngToBitmap,
+  posesFromFolder,
   posesFromFrames,
   sheetToBitmaps,
 } from "../pets/imagepack";
@@ -46,16 +48,31 @@ describe("pngToBitmap", () => {
     expect(bmp[0]).not.toContain("#"); // blob doesn't reach the top
   });
 
-  it("threshold controls what counts as ink", () => {
+  it("threshold controls what counts as ink (colour distance from the background)", () => {
+    // mid-grey (200) on white: distance ~55 — excluded by the default 60
     const pale = blobPng(32, 32, 16, 16);
-    // make the blob mid-grey (200) — below default? no: 200 > 140 -> not ink
     for (let i = 0; i < pale.data.length; i += 4) {
       if (pale.data[i] === 20) {
         pale.data[i] = pale.data[i + 1] = pale.data[i + 2] = 200;
       }
     }
     expect(pngToBitmap(pale, {}).join("")).not.toContain("#");
-    expect(pngToBitmap(pale, { threshold: 230 }).join("")).toContain("#");
+    expect(pngToBitmap(pale, { threshold: 40 }).join("")).toContain("#");
+  });
+
+  it("coloured-on-white art (the GPT case) inks correctly via background distance", () => {
+    const png = blobPng(32, 32, 16, 16);
+    for (let i = 0; i < png.data.length; i += 4) {
+      if (png.data[i] === 20) {
+        // orange body — luminance ~165, but far from the white background
+        png.data[i] = 240;
+        png.data[i + 1] = 150;
+        png.data[i + 2] = 40;
+      }
+    }
+    const bmp = pngToBitmap(png, {});
+    expect(bmp.join("")).toContain("#");
+    expect(bmp[7]).toContain("#");
   });
 });
 
@@ -118,6 +135,61 @@ describe("end-to-end: image pack validates", () => {
       expect(r.errors).toEqual([]);
       expect(r.species[0]!.id).toBe("blobmon");
       expect(r.rules).toHaveLength(1); // byte -> blobmon from --chain
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
+});
+
+describe("pose folders: N frames per activity", () => {
+  it("collects numbered frames per activity and builds multi-frame roles", () => {
+    const dir = mkdtempSync(join(tmpdir(), "agentmon-folder-"));
+    try {
+      // idle×3, code×2, happy×1 — everything else falls back to idle
+      const plan: Array<[string, number]> = [["idle", 3], ["code", 2], ["happy", 1]];
+      for (const [activity, count] of plan) {
+        for (let i = 1; i <= count; i++) {
+          writePng(join(dir, `${activity}${i}.png`), blobPng(32, 32, 12, 10 + i));
+        }
+      }
+      const r = posesFromFolder(dir, {});
+      expect(r.error).toBeUndefined();
+      expect(r.counts).toEqual({ idle: 3, code: 2, happy: 1 });
+      expect(r.roles.idle).toEqual(["idle1", "idle2", "idle3"]);
+      expect(r.roles.walk).toEqual(["idle1", "idle2", "idle3"]);
+      expect(r.roles.code).toEqual(["code1", "code2"]);
+      expect(r.roles.think).toEqual(["idle1", "idle2", "idle3"]); // fallback
+      // the generated pack validates with the real loader
+      const pack = buildImagePack(r.poses, { name: "Foldermon", roles: r.roles });
+      const packDir = join(dir, "x");
+      mkdirSync(packDir);
+      writeFileSync(join(packDir, "pack.json"), JSON.stringify(pack), "utf8");
+      // loadPetPacks treats `dir` itself as a pack folder — use a clean root
+      const root = mkdtempSync(join(tmpdir(), "agentmon-folder-root-"));
+      try {
+        mkdirSync(join(root, "fm-pack"), { recursive: true });
+        writeFileSync(join(root, "fm-pack", "pack.json"), JSON.stringify(pack), "utf8");
+        const loaded = loadPetPacks(root);
+        expect(loaded.errors).toEqual([]);
+        expect(loaded.species[0]!.roles.code).toEqual(["code1", "code2"]);
+      } finally {
+        rmSync(root, { recursive: true, force: true });
+      }
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
+  it("sorts numbered frames in numeric order and accepts legacy names", () => {
+    const files = ["idle10.png", "idle2.png", "idle1.png", "idleA.png"];
+    expect(collectActivityFiles(files, "idle")).toEqual(["idleA.png", "idle1.png", "idle2.png", "idle10.png"]);
+  });
+
+  it("requires at least one idle frame", () => {
+    const dir = mkdtempSync(join(tmpdir(), "agentmon-nofolder-"));
+    try {
+      writePng(join(dir, "code1.png"), blobPng(32, 32, 12, 12));
+      expect(posesFromFolder(dir, {}).error).toContain("idle");
     } finally {
       rmSync(dir, { recursive: true, force: true });
     }

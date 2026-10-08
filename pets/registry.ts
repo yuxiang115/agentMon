@@ -29,9 +29,17 @@ export interface SpeciesDef {
   /** "baby" — can evolve; "branch" — a Stage-5 evolution target. */
   stage: "baby" | "branch";
   description?: string;
-  poses: Record<PoseName, Bitmap>;
-  /** activity -> pose loop (the coding role grammar shared by all species). */
-  roles: Record<string, PoseName[]>;
+  /**
+   * Pose bitmaps keyed by pose name. Built-ins use the canonical 11; pet
+   * packs may use ANY names (idle1..idle4, code1..code3, ...) as long as
+   * `roles` references poses that exist and includes "idle".
+   */
+  poses: Record<string, Bitmap>;
+  /**
+   * activity -> pose loop (the coding role grammar). A loop may hold any
+   * number of frames; the animator cycles them at ~3 switches/sec.
+   */
+  roles: Record<string, string[]>;
 }
 
 export const SPECIES: Record<string, SpeciesDef> = {
