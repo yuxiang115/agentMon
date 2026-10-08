@@ -11,6 +11,7 @@
     "preview": "tsx tools/preview.ts",
     "session": "tsx tools/session.ts",
     "packs": "tsx tools/packs.ts",
+    "pack:from-tuipet": "tsx tools/pack-from-tuipet.ts",
     "test": "vitest run",
     "typecheck": "tsc --noEmit"
   },

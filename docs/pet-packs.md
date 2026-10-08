@@ -79,3 +79,28 @@ It prints loaded species, evolution rules, and every validation error.
 ## Getting Digimon-style sprites (your responsibility)
 
 tuipet's README documents extracting sprites from your own copy of DVPet (`tools/extract_sprites.py` — their MIT tooling, your DVPet data). The extracted frames are 16×16 `'0'/'1'` rows — exactly this pack format — but keep the results in your local pets directory only.
+
+### One-command import from a tuipet extraction
+
+A full template lives at [`examples/pet-pack/`](../examples/pet-pack/README.md) (original art — copy freely). To convert a tuipet `sprites.json`/`.json.gz` you extracted yourself:
+
+```
+npm run pack:from-tuipet -- --sprites path/to/sprites.json --names "Agumon,Greymon" --chain
+```
+
+- writes `<pets dir>/<pack-slug>/pack.json` and validates it immediately
+- `--chain` wires `byte -> first -> second ...` evolution hops with gentle default gates (axes rotate research/implementation/validation along the chain)
+- `--map "think=3,codeA=7"` remaps frame indices if you dislike the defaults
+
+Default frame mapping (tuipet's 11-frame strip → agentMon poses):
+
+| pose | frame | tuipet role | pose | frame | tuipet role |
+| --- | --- | --- | --- | --- | --- |
+| idleA | 0 | idle/walk-A | testA | 6 | attack |
+| idleB | 1 | idle/walk-B | testB | 0 | stance |
+| think | 4 | refuse (head down) | happy | 5 | cheer |
+| search | 6 | attack/jeer (scanning) | sad | 9 | weary |
+| codeA | 7 | chew | sleep | 2 | sleep-A |
+| codeB | 8 | eat | | | |
+
+Then restart pi (or `/reload`), `/pets list`, `/pets use agumon` — or let the wired evolution gates grow into it naturally.
