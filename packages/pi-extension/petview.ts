@@ -5,7 +5,7 @@
 import type { Component, TUI } from "@earendil-works/pi-tui";
 import type { ExtensionContext } from "@earendil-works/pi-coding-agent";
 import { activePet, levelFromXp, xpProgress, type GameState } from "../core";
-import { BYTE } from "../../pets/sprites/byte";
+import { speciesFor } from "../../pets/registry";
 import { renderScreen } from "../renderer/src/framebuffer";
 import { COLS, CHAR_ROWS } from "../renderer/src/lcd";
 import { pickFrame, HOLD, SLEEP_BEAT, TICK_MS } from "../renderer/src/animation";
@@ -44,15 +44,19 @@ class PetScreen implements Component {
   render(width: number): string[] {
     const pet = activePet(this.readState());
     if (!pet) return ["agentMon: no pet yet — start a session first."];
-    const poses = (BYTE.roles[pet.activity] ?? BYTE.roles.idle).map((p) => BYTE.poses[p]);
+    const species = speciesFor(pet.species);
+    const poses = (species.roles[pet.activity] ?? species.roles.idle).map((p) => species.poses[p]);
     const hold = pet.activity === "sleep" ? SLEEP_BEAT : HOLD;
     const frame = pickFrame(poses, this.tickN, hold);
     const lcd = renderScreen(frame, COLS, CHAR_ROWS);
     const c = pet.counters;
     const ageH = (pet.ageMs / 3_600_000).toFixed(1);
     const prog = xpProgress(c.xp);
+    const evolved = pet.evolutions.length
+      ? ` · evolved ${pet.evolutions.map((e) => `${e.from}→${e.to}`).join(", ")}`
+      : "";
     return [
-      ` ${pet.name} (${pet.species}) Lv.${levelFromXp(c.xp)} — ${pet.activity} · ${pet.behaviorMode.toLowerCase()}`,
+      ` ${pet.name} the ${species.name} (${species.stage}) Lv.${levelFromXp(c.xp)} — ${pet.activity} · ${pet.behaviorMode.toLowerCase()}${evolved}`,
       "",
       ...lcd.map((l) => " " + l),
       "",

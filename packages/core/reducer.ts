@@ -19,6 +19,7 @@
 import type { CodingEvent, EventType } from "../events/types";
 import type { Activity, Counters, GameState, PetState } from "./pet";
 import { XP_AWARDS } from "./xp";
+import { evolutionTarget } from "./evolution";
 import {
   BEHAVIOR_WINDOW,
   classifyBehavior,
@@ -121,6 +122,8 @@ export function normalizePet(pet: PetState): PetState {
     },
     behaviorWindow: pet.behaviorWindow ?? [],
     behaviorMode: pet.behaviorMode ?? "STEADY",
+    validatedTasks: pet.validatedTasks ?? 0,
+    evolutions: pet.evolutions ?? [],
   };
 }
 
@@ -241,9 +244,20 @@ export function reduceEvent(state: GameState, event: CodingEvent): GameState {
         // first-pass = validated AND nothing ever failed along the way
         if (task.validated && !task.failedEver) award += XP_AWARDS.FIRST_PASS_BONUS;
         next.counters.xp += award;
+        if (task.validated) next.validatedTasks++;
         next.careMistakes += mistakesAtTaskClose(task).length;
         next.task = null;
         next.dirty = false;
+        // Evolution check at task close (plan.md §16 multi-gate).
+        const target = evolutionTarget(next);
+        if (target) {
+          next.evolutions = [...next.evolutions, { from: next.species, to: target, at: event.ts }];
+          next.species = target;
+          // EVOLUTION outranks everything (plan.md §13): a forced, longer
+          // celebration while the new form takes over the screen.
+          next = applyActivity(next, "happy", event.ts, true);
+          next.emotionUntil = event.ts + 3 * EMOTION_TTL_MS;
+        }
       }
       break;
     }

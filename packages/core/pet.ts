@@ -96,6 +96,10 @@ export interface PetState {
   behaviorWindow: BehaviorKind[];
   /** The window's current classification. */
   behaviorMode: BehaviorMode;
+  /** Completed tasks that were validated (for the validation-discipline gate). */
+  validatedTasks: number;
+  /** Evolution history: [{from, to, at}]. */
+  evolutions: Array<{ from: string; to: string; at: number }>;
 }
 
 export interface GameState {
@@ -150,6 +154,8 @@ export function createPet(opts: CreatePetOptions): PetState {
     traits: { research: 0, implementation: 0, validation: 0 },
     behaviorWindow: [],
     behaviorMode: "STEADY",
+    validatedTasks: 0,
+    evolutions: [],
   };
 }
 

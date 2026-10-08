@@ -6,7 +6,7 @@
 import type { Component, TUI } from "@earendil-works/pi-tui";
 import type { ExtensionContext } from "@earendil-works/pi-coding-agent";
 import { activePet, levelFromXp, type GameState } from "../core";
-import { BYTE } from "../../pets/sprites/byte";
+import { speciesFor } from "../../pets/registry";
 import { renderScene } from "../renderer/src/framebuffer";
 import { COLS, CHAR_ROWS, roamBounds } from "../renderer/src/lcd";
 import { pickFrame, Roamer, HOLD, SLEEP_BEAT, TICK_MS, type Rng } from "../renderer/src/animation";
@@ -69,7 +69,8 @@ export class PetWidget implements Component {
   render(width: number): string[] {
     const pet = activePet(this.getState());
     if (!pet) return [];
-    const poses = (BYTE.roles[pet.activity] ?? BYTE.roles.idle).map((p) => BYTE.poses[p]);
+    const species = speciesFor(pet.species);
+    const poses = (species.roles[pet.activity] ?? species.roles.idle).map((p) => species.poses[p]);
     const hold = pet.activity === "sleep" ? SLEEP_BEAT : HOLD;
     const frame = pickFrame(poses, this.tickN, hold);
     const roaming = pet.activity === "idle" || pet.activity === "walk";

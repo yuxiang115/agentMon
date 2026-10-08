@@ -6,7 +6,7 @@
 
 import { addPet, createPet, freshState, levelFromXp, reduceEvent, tick } from "../packages/core";
 import type { CodingEvent, EventType } from "../packages/events/types";
-import { BYTE } from "../pets/sprites/byte";
+import { speciesFor } from "../pets/registry";
 import { renderScreen } from "../packages/renderer/src/framebuffer";
 import { pickFrame, HOLD, SLEEP_BEAT } from "../packages/renderer/src/animation";
 import { COLS, CHAR_ROWS } from "../packages/renderer/src/lcd";
@@ -72,11 +72,15 @@ console.log(
 console.log(`  age=${(pet.ageMs / 1000).toFixed(0)}s`);
 
 function lcd(activity: string, ts: number): string[] {
-  const poses = (BYTE.roles[activity] ?? BYTE.roles.idle).map((p) => BYTE.poses[p]);
+  const species = speciesFor(petSpecies());
+  const poses = (species.roles[activity] ?? species.roles.idle).map((p) => species.poses[p]);
   const hold = activity === "sleep" ? SLEEP_BEAT : HOLD;
   const frame = pickFrame(poses, Math.floor(ts / 100), hold);
-  const lines = renderScreen(frame, COLS, CHAR_ROWS, paint);
-  return plain ? lines : lines;
+  return renderScreen(frame, COLS, CHAR_ROWS, paint);
+}
+
+function petSpecies(): string {
+  return state.pets[state.activePetId!]!.species;
 }
 
 console.log();
