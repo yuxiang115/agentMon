@@ -41,7 +41,34 @@ export const SPECIES: Record<string, SpeciesDef> = {
   guardian: GUARDIAN,
 };
 
+// --- runtime (pet-pack) species — see docs/pet-packs.md ---------------------
+// Pet packs are USER-SUPPLIED sprite data loaded at runtime (the tuipet
+// model: the repo ships original art + loaders only; Bandai-derived data, if
+// any, lives on the user's machine at the user's own responsibility).
+
+const customSpecies = new Map<string, SpeciesDef>();
+
+/** Register pack species; a pack id may reskin a built-in (pack wins). */
+export function registerSpecies(...defs: SpeciesDef[]): void {
+  for (const def of defs) customSpecies.set(def.id, def);
+}
+
+export function resetCustomSpecies(): void {
+  customSpecies.clear();
+}
+
+/** Every species, built-ins first, then pack species. */
+export function allSpecies(): SpeciesDef[] {
+  return [...Object.values(SPECIES), ...customSpecies.values()];
+}
+
+export function speciesSource(id: string): "builtin" | "pack" | "unknown" {
+  if (customSpecies.has(id)) return "pack";
+  if (id in SPECIES) return "builtin";
+  return "unknown";
+}
+
 /** Species lookup with a safe fallback to the baby form. */
 export function speciesFor(id: string): SpeciesDef {
-  return SPECIES[id] ?? BYTE;
+  return customSpecies.get(id) ?? SPECIES[id] ?? BYTE;
 }

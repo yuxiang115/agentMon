@@ -56,6 +56,23 @@ export const EVOLUTION_RULES: readonly EvolutionRule[] = [
   },
 ];
 
+// --- runtime (pet-pack) rules — see docs/pet-packs.md -----------------------
+
+const customRules: EvolutionRule[] = [];
+
+/** Register pack-provided evolution rules (appended after the built-ins). */
+export function registerEvolutionRules(rules: EvolutionRule[]): void {
+  customRules.push(...rules);
+}
+
+export function resetCustomEvolutionRules(): void {
+  customRules.length = 0;
+}
+
+export function allEvolutionRules(): readonly EvolutionRule[] {
+  return [...EVOLUTION_RULES, ...customRules];
+}
+
 /** Each axis's share of the total trait points. */
 export function traitShares(traits: TraitScores): Record<TraitAxis, number> {
   const total = traits.research + traits.implementation + traits.validation;
@@ -87,7 +104,7 @@ function gatesPass(pet: PetState, gates: EvolutionGates, shares: Record<TraitAxi
 export function evolutionTarget(pet: PetState): string | null {
   const shares = traitShares(pet.traits);
   let best: { to: string; share: number; index: number } | null = null;
-  EVOLUTION_RULES.forEach((rule, index) => {
+  allEvolutionRules().forEach((rule, index) => {
     if (rule.from !== pet.species) return;
     if (!gatesPass(pet, rule.gates, shares)) return;
     const share = shares[rule.gates.axis];
