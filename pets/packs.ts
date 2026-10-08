@@ -70,6 +70,14 @@ function parseSpecies(
   }
   const name = typeof s.name === "string" && s.name.trim() ? s.name.trim() : id;
   const stage = s.stage === "baby" ? "baby" : "branch";
+  let ink: string | undefined;
+  if (s.ink !== undefined) {
+    if (typeof s.ink !== "string" || !/^#[0-9a-fA-F]{6}$/.test(s.ink)) {
+      errors.push(`${context}/${id}: ink must be a #rrggbb hex colour`);
+      return null;
+    }
+    ink = s.ink.toLowerCase();
+  }
   const poses: Record<string, Bitmap> = {};
   if (typeof s.poses !== "object" || s.poses === null) {
     errors.push(`${context}/${id}: missing poses`);
@@ -129,6 +137,7 @@ function parseSpecies(
     name,
     stage,
     description: typeof s.description === "string" ? s.description : undefined,
+    ink,
     poses,
     roles,
   };

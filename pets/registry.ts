@@ -36,6 +36,11 @@ export interface SpeciesDef {
    */
   poses: Record<string, Bitmap>;
   /**
+   * Optional ink colour (#rrggbb): the pet renders in this colour instead of
+   * the default dark ink — image imports pick the body's dominant colour.
+   */
+  ink?: string;
+  /**
    * activity -> pose loop (the coding role grammar). A loop may hold any
    * number of frames; the animator cycles them at ~3 switches/sec.
    */

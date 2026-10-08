@@ -48,7 +48,7 @@ class PetScreen implements Component {
     const poses = (species.roles[pet.activity] ?? species.roles.idle).map((p) => species.poses[p]);
     const hold = pet.activity === "sleep" ? SLEEP_BEAT : HOLD;
     const frame = pickFrame(poses, this.tickN, hold);
-    const lcd = renderScreen(frame, COLS, CHAR_ROWS);
+    const lcd = renderScreen(frame, COLS, CHAR_ROWS, { on: species.ink ?? "#2b2e31" });
     const c = pet.counters;
     const ageH = (pet.ageMs / 3_600_000).toFixed(1);
     const prog = xpProgress(c.xp);

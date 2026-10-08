@@ -37,42 +37,40 @@ function writePng(path: string, png: PNG): void {
   writeFileSync(path, PNG.sync.write(png), "utf8");
 }
 
-describe("pngToBitmap", () => {
-  it("downsamples a blob into a grounded 16x16 bitmap", () => {
+describe("pngToBitmap (nearest-neighbour, luminance-margin ink)", () => {
+  it("downsamples a blob into a 16x16 bitmap with 16 rows", () => {
     const bmp = pngToBitmap(blobPng(64, 64, 32, 32), {});
     expect(bmp).toHaveLength(16);
     expect(bmp.every((r) => r.length === 16 && /^[#.]+$/.test(r))).toBe(true);
-    expect(bmp[14]).toMatch(/^\.+$/); // grounding pads
-    expect(bmp[15]).toMatch(/^\.+$/);
     expect(bmp[7]).toContain("#"); // ink around the middle
     expect(bmp[0]).not.toContain("#"); // blob doesn't reach the top
+    expect(bmp[15]).not.toContain("#");
   });
 
-  it("threshold controls what counts as ink (colour distance from the background)", () => {
-    // mid-grey (200) on white: distance ~55 — excluded by the default 60
+  it("threshold is the luminance margin below the background", () => {
     const pale = blobPng(32, 32, 16, 16);
     for (let i = 0; i < pale.data.length; i += 4) {
       if (pale.data[i] === 20) {
-        pale.data[i] = pale.data[i + 1] = pale.data[i + 2] = 200;
+        pale.data[i] = pale.data[i + 1] = pale.data[i + 2] = 220; // gap 35 < default 40
       }
     }
     expect(pngToBitmap(pale, {}).join("")).not.toContain("#");
-    expect(pngToBitmap(pale, { threshold: 40 }).join("")).toContain("#");
+    expect(pngToBitmap(pale, { threshold: 20 }).join("")).toContain("#");
   });
 
-  it("coloured-on-white art (the GPT case) inks correctly via background distance", () => {
-    const png = blobPng(32, 32, 16, 16);
-    for (let i = 0; i < png.data.length; i += 4) {
-      if (png.data[i] === 20) {
-        // orange body — luminance ~165, but far from the white background
-        png.data[i] = 240;
-        png.data[i + 1] = 150;
-        png.data[i + 2] = 40;
-      }
+  it("white eye details on a coloured body become holes", () => {
+    // dark body with two white eye pixels: body = ink, eyes = holes
+    const png = blobPng(16, 16, 12, 12);
+    for (const [ex, ey] of [[6, 6], [9, 6]] as Array<[number, number]>) {
+      const i = (16 * ey + ex) << 2;
+      png.data[i] = png.data[i + 1] = png.data[i + 2] = 255;
     }
     const bmp = pngToBitmap(png, {});
-    expect(bmp.join("")).toContain("#");
-    expect(bmp[7]).toContain("#");
+    const inkBefore = bmp.join("").split("").filter((c) => c === "#").length;
+    expect(inkBefore).toBeGreaterThan(20); // body mostly ink
+    // the nearest-neighbour samples hit the eye pixels at 1:1 scale
+    expect(bmp[6]).toContain(".");
+    expect(bmp[6].split("").filter((c) => c === "." ).length).toBeGreaterThanOrEqual(2);
   });
 });
 
@@ -91,7 +89,7 @@ describe("autoPoses", () => {
     expect(Object.keys(poses)).toHaveLength(11);
     for (const rows of Object.values(poses)) {
       expect(rows).toHaveLength(16);
-      expect(rows[14]).toMatch(/^\.+$/);
+      expect(rows.every((r) => r.length === 16)).toBe(true);
     }
     expect(poses.search).not.toEqual(poses.idleA); // mirror of an asymmetric blob
     expect(poses.idleB).not.toEqual(poses.idleA); // bounce

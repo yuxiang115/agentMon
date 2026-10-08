@@ -2,47 +2,43 @@
 // Feed any PNG — a single illustration, an N-frame horizontal sprite sheet,
 // or a folder of pose-named images — and get a valid pack.json out.
 //
-//   single image  : 11 poses auto-derived (bounce/mirror shifts) — good for a
-//                   static illustration you want ALIVE quickly
-//   --frames N    : horizontal sheet; N==11 maps with the tuipet pose table,
-//                   otherwise frames are assigned to poses in order (cycled)
-//   pose folder   : idleA.png idleB.png think.png search.png codeA.png
-//                   codeB.png testA.png testB.png happy.png sad.png sleep.png
-//
-// Ink rule: a pixel is on when its alpha >= 0.5 and its luminance is below
-// the threshold (dark-on-light / dark-on-transparent sprites). Everything is
-// area-averaged down into a 16x14 cell and grounded with 2 padding rows, so
-// imported pets line up with the built-ins.
+// Extraction (the pi-pets lessons applied to our 1-bit LCD):
+//  - NEAREST-NEIGHBOR sampling: authored pixel details (eyes, mouths)
+//    survive; area-averaging turned coloured bodies into solid blobs.
+//  - Luminance-relative ink: ink = darker than the detected background by
+//    `threshold` (default 40). White eyes on an orange body become holes;
+//    dark outlines stay ink. Transparent backgrounds: any opaque pixel.
+//  - The dominant ink colour is extracted and stored as the species' `ink`
+//    so the pet renders in ITS colour instead of black.
+//  - Frames keep all 16 rows (no 14-row squeeze); the renderer grounds them.
 
 import { PNG } from "pngjs";
 import { readFileSync, readdirSync } from "node:fs";
 import { POSE_NAMES, type PoseName } from "./registry";
 import { DEFAULT_TUIPET_POSE_MAP, slugify } from "./convert";
 
-export const CONTENT_ROWS = 14; // rows 0..13; rows 14/15 stay empty (grounding)
+export const CONTENT_ROWS = 16;
 
 export interface BitmapOptions {
   /**
-   * 0..255 colour distance from the detected background for a pixel to count
-   * as ink. Default 60. The background is auto-detected from the border
-   * ring: transparent borders mean "any opaque pixel is ink" (classic sprite
-   * sheets), opaque borders mean "different-from-background is ink" (GPT's
-   * white-background illustrations with coloured characters).
+   * Luminance margin below the detected background for ink (0..255,
+   * default 40). Lower it if pale art comes out blank; raise it if the
+   * background is off-white and gets picked up as ink.
    */
   threshold?: number;
 }
 
-/** Decode one PNG into a grounded 16x16 bitmap ('#' ink / '.' off). */
-export function pngToBitmap(png: PNG, opts: BitmapOptions = {}): string[] {
-  const threshold = opts.threshold ?? 60;
-  const W = 16;
+interface InkModel {
+  isInk(i: number): boolean;
+  transparentMode: boolean;
+  bgLum: number;
+}
 
+function buildInkModel(png: PNG, threshold: number): InkModel {
   // background detection from the border ring
   let transparentBorder = 0;
   let borderTotal = 0;
-  let br = 0;
-  let bgc = 0;
-  let bb = 0;
+  let luma = 0;
   let opaqueCount = 0;
   const consider = (x: number, y: number) => {
     const i = (png.width * y + x) << 2;
@@ -51,9 +47,7 @@ export function pngToBitmap(png: PNG, opts: BitmapOptions = {}): string[] {
       transparentBorder++;
       return;
     }
-    br += png.data[i]!;
-    bgc += png.data[i + 1]!;
-    bb += png.data[i + 2]!;
+    luma += 0.299 * png.data[i]! + 0.587 * png.data[i + 1]! + 0.114 * png.data[i + 2]!;
     opaqueCount++;
   };
   for (let x = 0; x < png.width; x++) {
@@ -65,55 +59,71 @@ export function pngToBitmap(png: PNG, opts: BitmapOptions = {}): string[] {
     consider(png.width - 1, y);
   }
   const transparentMode = transparentBorder * 2 >= borderTotal;
-  const bcr = opaqueCount ? br / opaqueCount : 255;
-  const bcg = opaqueCount ? bgc / opaqueCount : 255;
-  const bcb = opaqueCount ? bb / opaqueCount : 255;
-
+  const bgLum = opaqueCount ? luma / opaqueCount : 255;
   const isInk = (i: number): boolean => {
     if (png.data[i + 3]! < 128) return false;
     if (transparentMode) return true;
-    const dr = png.data[i]! - bcr;
-    const dg = png.data[i + 1]! - bcg;
-    const db = png.data[i + 2]! - bcb;
-    return Math.sqrt(dr * dr + dg * dg + db * db) / Math.sqrt(3) >= threshold;
+    const lum = 0.299 * png.data[i]! + 0.587 * png.data[i + 1]! + 0.114 * png.data[i + 2]!;
+    return bgLum - lum >= threshold;
   };
+  return { isInk, transparentMode, bgLum };
+}
 
-  const cell = (x: number, y: number): boolean => {
-    // majority rule over the source rectangle mapped to cell (x, y)
-    const x0 = Math.floor((x * png.width) / W);
-    const x1 = Math.max(x0 + 1, Math.floor(((x + 1) * png.width) / W));
-    const y0 = Math.floor((y * png.height) / CONTENT_ROWS);
-    const y1 = Math.max(y0 + 1, Math.floor(((y + 1) * png.height) / CONTENT_ROWS));
-    let inkCount = 0;
-    let total = 0;
-    for (let sy = y0; sy < y1; sy++) {
-      for (let sx = x0; sx < x1; sx++) {
-        total++;
-        if (isInk((png.width * sy + sx) << 2)) inkCount++;
-      }
-    }
-    return total > 0 && inkCount * 2 >= total;
-  };
-
+/** Decode one PNG into a 16x16 bitmap ('#' ink / '.' off), nearest-neighbour. */
+export function pngToBitmap(png: PNG, opts: BitmapOptions = {}): string[] {
+  const model = buildInkModel(png, opts.threshold ?? 40);
+  const W = 16;
   const rows: string[] = [];
   for (let y = 0; y < CONTENT_ROWS; y++) {
+    const sy = Math.min(png.height - 1, Math.floor(((y + 0.5) * png.height) / CONTENT_ROWS));
     let row = "";
-    for (let x = 0; x < W; x++) row += cell(x, y) ? "#" : ".";
+    for (let x = 0; x < W; x++) {
+      const sx = Math.min(png.width - 1, Math.floor(((x + 0.5) * png.width) / W));
+      row += model.isInk((png.width * sy + sx) << 2) ? "#" : ".";
+    }
     rows.push(row);
   }
-  rows.push(".".repeat(W), ".".repeat(W)); // grounding pad
   return rows;
 }
 
+/** The dominant colour among ink pixels, as #rrggbb (for the species' ink). */
+export function dominantInkColor(png: PNG, opts: BitmapOptions = {}): string | undefined {
+  const model = buildInkModel(png, opts.threshold ?? 40);
+  const buckets = new Map<number, number>();
+  const step = Math.max(1, Math.floor((png.width * png.height) / 4096)); // sample cap
+  let n = 0;
+  for (let i = 0; i < png.width * png.height; i += step) {
+    const px = i << 2;
+    if (!model.isInk(px)) continue;
+    if (png.data[px + 3]! < 128) continue;
+    const r = png.data[px]!;
+    const g = png.data[px + 1]!;
+    const b = png.data[px + 2]!;
+    const key = ((r >> 4) << 8) | ((g >> 4) << 4) | (b >> 4);
+    buckets.set(key, (buckets.get(key) ?? 0) + 1);
+    n++;
+  }
+  if (!n) return undefined;
+  let bestKey = 0;
+  let bestCount = -1;
+  for (const [key, count] of buckets) {
+    if (count > bestCount) {
+      bestCount = count;
+      bestKey = key;
+    }
+  }
+  const hex = (v: number) => ((v << 4) | 0x8).toString(16).padStart(2, "0");
+  return `#${hex((bestKey >> 8) & 0xf)}${hex((bestKey >> 4) & 0xf)}${hex(bestKey & 0xf)}`;
+}
+
 function shiftContent(bitmap: string[], dy: number): string[] {
-  const content = bitmap.slice(0, CONTENT_ROWS);
   const blank = ".".repeat(16);
   const moved: string[] = [];
   for (let y = 0; y < CONTENT_ROWS; y++) {
     const src = y - dy;
-    moved.push(src >= 0 && src < CONTENT_ROWS ? content[src]! : blank);
+    moved.push(src >= 0 && src < CONTENT_ROWS ? bitmap[src]! : blank);
   }
-  return [...moved, blank, blank];
+  return moved;
 }
 
 function mirrorContent(bitmap: string[]): string[] {
@@ -143,7 +153,7 @@ export function autoPoses(base: string[]): Record<PoseName, string[]> {
 
 /** Split a horizontal sheet into per-frame bitmaps (each a 16-row array). */
 export function sheetToBitmaps(png: PNG, frameCount: number, opts: BitmapOptions = {}): string[][] {
-  const threshold = opts.threshold ?? 140;
+  const threshold = opts.threshold ?? 40;
   const bitmaps: string[][] = [];
   for (let f = 0; f < frameCount; f++) {
     const cellPng = new PNG({ width: Math.floor(png.width / frameCount), height: png.height });
@@ -181,6 +191,8 @@ export interface ImagePackOptions {
   description?: string;
   /** Wire byte -> this species with gentle default gates. */
   chain?: boolean;
+  /** Species ink colour (#rrggbb) — the pet renders in this instead of black. */
+  ink?: string;
 }
 
 export function buildImagePack(
@@ -196,6 +208,7 @@ export function buildImagePack(
     poses,
   };
   if (opts.roles) species.roles = opts.roles;
+  if (opts.ink) species.ink = opts.ink;
   const pack: Record<string, unknown> = {
     name: `${opts.name} pack`,
     species: [species],
@@ -257,6 +270,8 @@ export interface FolderPosesResult {
   poses: Record<string, string[]>;
   roles: Record<string, string[]>;
   counts: Record<string, number>;
+  /** Dominant ink colour across all frames, if any. */
+  ink?: string;
   error?: string;
 }
 
@@ -270,6 +285,7 @@ export function posesFromFolder(dir: string, opts: BitmapOptions = {}): FolderPo
   const roles: Record<string, string[]> = {};
   const counts: Record<string, number> = {};
   let idleKeys: string[] | undefined;
+  let ink: string | undefined;
 
   for (const activity of ACTIVITIES) {
     const activityFiles = collectActivityFiles(files, activity);
@@ -280,6 +296,7 @@ export function posesFromFolder(dir: string, opts: BitmapOptions = {}): FolderPo
       const key = `${activity}${i + 1}`;
       poses[key] = pngToBitmap(png, opts);
       keys.push(key);
+      ink = ink ?? dominantInkColor(png, opts);
     });
     counts[activity] = keys.length;
     if (activity === "idle") idleKeys = keys;
@@ -293,5 +310,5 @@ export function posesFromFolder(dir: string, opts: BitmapOptions = {}): FolderPo
   for (const activity of ACTIVITIES) {
     if (!roles[activity]) roles[activity] = idleKeys;
   }
-  return { poses, roles, counts };
+  return { poses, roles, counts, ink };
 }

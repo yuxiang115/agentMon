@@ -19,6 +19,7 @@ import { basename, join } from "node:path";
 import {
   autoPoses,
   buildImagePack,
+  dominantInkColor,
   pngToBitmap,
   posesFromFrames,
   posesFromFolder,
@@ -59,6 +60,7 @@ function decode(file: string): PNG {
 
 let poses: Record<string, string[]>;
 let roles: Record<string, string[]> | undefined;
+let ink: string | undefined;
 try {
   let entries: Dirent[] | null = null;
   try {
@@ -76,6 +78,7 @@ try {
     }
     poses = folder.poses;
     roles = folder.roles;
+    ink = folder.ink;
     console.log(
       "pose folder: " +
         Object.entries(folder.counts)
@@ -89,6 +92,7 @@ try {
       process.exit(1);
     }
     const png = decode(imgArg);
+    ink = dominantInkColor(png, { threshold });
     const framesArg = arg("--frames");
     if (framesArg && Number(framesArg) >= 2) {
       const frames = sheetToBitmaps(png, Number(framesArg), { threshold });
@@ -104,7 +108,8 @@ try {
   process.exit(1);
 }
 
-const pack = buildImagePack(poses, { name, id: arg("--id"), stage, chain, roles });
+const pack = buildImagePack(poses, { name, id: arg("--id"), stage, chain, roles, ink });
+if (ink) console.log(`ink colour: ${ink}`);
 const slug = slugify(String(pack.name));
 const packDir = join(outDir, slug);
 mkdirSync(packDir, { recursive: true });
@@ -120,9 +125,9 @@ if (ours.length) {
 }
 const id = (pack.species as Array<{ id: string }>)[0]!.id;
 const sampleKey = roles?.idle?.[0] ?? Object.keys(poses)[0]!;
-const ink = poses[sampleKey]!.join("").split("").filter((c) => c === "#").length;
+const inkPixels = poses[sampleKey]!.join("").split("").filter((c) => c === "#").length;
 console.log(`wrote ${file}`);
-console.log(`  species ${id} (${ink} ink pixels in ${sampleKey}), validation OK`);
+console.log(`  species ${id} (${inkPixels} ink pixels in ${sampleKey}), validation OK`);
 console.log(`next: in pi run  /pets import ${file}  (or just /reload), then /pets use ${id}`);
 if (basename(imgArg).toLowerCase().includes("agumon") || /digimon|agumon/i.test(name)) {
   console.log(`reminder: Digimon designs are © Bandai — keep this pack local, never commit it.`);

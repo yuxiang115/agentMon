@@ -104,6 +104,7 @@ export class PetOverlay implements Component {
       [{ frame, xLeft: roaming ? this.roamer.x : 8, mirror: roaming ? this.roamer.mirror : false }],
       COLS,
       CHAR_ROWS,
+      { on: species.ink ?? "#2b2e31" },
     );
 
     const w = Math.min(width, OVERLAY_WIDTH);
