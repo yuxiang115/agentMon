@@ -44,12 +44,24 @@ export interface PetPackLoadResult {
   errors: string[];
 }
 
-function validPose(pose: unknown): boolean {
+function validMonoPose(pose: unknown): boolean {
   return (
     Array.isArray(pose) &&
     pose.length === 16 &&
     pose.every((row) => typeof row === "string" && row.length === 16 && /^[01#.]*$/.test(row)) &&
     pose.some((row) => /[1#]/.test(row))
+  );
+}
+
+function validColorPose(pose: unknown, paletteKeys: ReadonlySet<string>): boolean {
+  return (
+    Array.isArray(pose) &&
+    pose.length === 16 &&
+    pose.every(
+      (row) =>
+        typeof row === "string" && row.length === 16 && [...row].every((c) => c === "." || paletteKeys.has(c)),
+    ) &&
+    pose.some((row) => [...row].some((c) => c !== "."))
   );
 }
 
@@ -78,6 +90,26 @@ function parseSpecies(
     }
     ink = s.ink.toLowerCase();
   }
+  let palette: Record<string, string> | undefined;
+  if (s.palette !== undefined) {
+    if (typeof s.palette !== "object" || s.palette === null || Array.isArray(s.palette)) {
+      errors.push(`${context}/${id}: palette must be an object of char -> #rrggbb`);
+      return null;
+    }
+    palette = {};
+    for (const [key, value] of Object.entries(s.palette as Record<string, unknown>)) {
+      if (key.length !== 1 || key === "." || typeof value !== "string" || !/^#[0-9a-fA-F]{6}$/.test(value)) {
+        errors.push(`${context}/${id}: palette entry ${JSON.stringify(key)} must be one char -> #rrggbb`);
+        return null;
+      }
+      palette[key] = (value as string).toLowerCase();
+    }
+    if (Object.keys(palette).length > 64) {
+      errors.push(`${context}/${id}: palette may hold at most 64 colours`);
+      return null;
+    }
+  }
+  const paletteKeys = new Set(palette ? Object.keys(palette) : []);
   const poses: Record<string, Bitmap> = {};
   if (typeof s.poses !== "object" || s.poses === null) {
     errors.push(`${context}/${id}: missing poses`);
@@ -88,8 +120,11 @@ function parseSpecies(
       errors.push(`${context}/${id}: bad pose name "${poseName}" (letters/digits/dashes, max 32)`);
       return null;
     }
-    if (!validPose(pose)) {
-      errors.push(`${context}/${id}: pose ${poseName} must be 16 rows of 16 chars of 1/0/#/. with ink`);
+    const ok = palette ? validColorPose(pose, paletteKeys) : validMonoPose(pose);
+    if (!ok) {
+      errors.push(
+        `${context}/${id}: pose ${poseName} must be 16 rows of 16 chars${palette ? " of palette chars/'.'" : " of 1/0/#/. with ink"}`,
+      );
       return null;
     }
     poses[poseName] = pose as Bitmap;
@@ -138,6 +173,7 @@ function parseSpecies(
     stage,
     description: typeof s.description === "string" ? s.description : undefined,
     ink,
+    palette,
     poses,
     roles,
   };

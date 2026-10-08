@@ -41,6 +41,12 @@ export interface SpeciesDef {
    */
   ink?: string;
   /**
+   * Optional colour palette (single char -> #rrggbb). When present, pose
+   * rows are palette-indexed (any char but '.' selects its colour) and the
+   * pet renders full-colour, pi-pets style — photo-faithful imports.
+   */
+  palette?: Record<string, string>;
+  /**
    * activity -> pose loop (the coding role grammar). A loop may hold any
    * number of frames; the animator cycles them at ~3 switches/sec.
    */

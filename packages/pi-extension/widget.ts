@@ -8,6 +8,7 @@ import type { Component, TUI } from "@earendil-works/pi-tui";
 import type { ExtensionContext } from "@earendil-works/pi-coding-agent";
 import { activePet, levelFromXp, type GameState } from "../core";
 import { speciesFor } from "../../pets/registry";
+import { poseToColorGrid, renderColorScene } from "../renderer/src/colorframe";
 import { renderScene } from "../renderer/src/framebuffer";
 import { COLS, CHAR_ROWS, roamBounds } from "../renderer/src/lcd";
 import { pickFrame, Roamer, HOLD, SLEEP_BEAT, TICK_MS, type Rng } from "../renderer/src/animation";
@@ -100,12 +101,15 @@ export class PetOverlay implements Component {
     const hold = pet.activity === "sleep" ? SLEEP_BEAT : HOLD;
     const frame = pickFrame(poses, this.tickN, hold);
     const roaming = pet.activity === "idle" || pet.activity === "walk";
-    const lcd = renderScene(
-      [{ frame, xLeft: roaming ? this.roamer.x : 8, mirror: roaming ? this.roamer.mirror : false }],
-      COLS,
-      CHAR_ROWS,
-      { on: species.ink ?? "#2b2e31" },
-    );
+    const x = roaming ? this.roamer.x : 8;
+    const mirror = roaming ? this.roamer.mirror : false;
+    const lcd = species.palette
+      ? renderColorScene(
+          [{ grid: poseToColorGrid(frame, species.palette), xLeft: x, mirror }],
+          COLS,
+          CHAR_ROWS,
+        )
+      : renderScene([{ frame, xLeft: x, mirror }], COLS, CHAR_ROWS, { on: species.ink ?? "#2b2e31" });
 
     const w = Math.min(width, OVERLAY_WIDTH);
     const inner = w - 2;

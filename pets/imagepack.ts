@@ -116,6 +116,137 @@ export function dominantInkColor(png: PNG, opts: BitmapOptions = {}): string | u
   return `#${hex((bestKey >> 8) & 0xf)}${hex((bestKey >> 4) & 0xf)}${hex(bestKey & 0xf)}`;
 }
 
+// --- colour extraction: photo-faithful, pi-pets-style -----------------------
+
+/** A frame as 16 rows x 16 cols of quantized "#rrggbb" or null (transparent). */
+export type HexGrid = Array<Array<string | null>>;
+
+export interface ColorExtractOptions {
+  /**
+   * 0..255 colour distance from the detected background for a pixel to count
+   * as part of the sprite (default 60). Pixels keep their OWN colour.
+   */
+  threshold?: number;
+}
+
+const quant = (v: number): number => Math.min(255, Math.round(v / 32) * 32);
+
+/**
+ * Extract a 16x16 colour grid (nearest-neighbour). Ink decision is
+ * differs-from-background; colour is the pixel's own quantized colour.
+ */
+export function pngToHexGrid(png: PNG, opts: ColorExtractOptions = {}): HexGrid {
+  const threshold = opts.threshold ?? 60;
+  // background from the border ring
+  let transparentBorder = 0;
+  let borderTotal = 0;
+  let br = 0;
+  let bgc = 0;
+  let bb = 0;
+  let opaqueCount = 0;
+  const consider = (x: number, y: number) => {
+    const i = (png.width * y + x) << 2;
+    borderTotal++;
+    if (png.data[i + 3]! < 128) {
+      transparentBorder++;
+      return;
+    }
+    br += png.data[i]!;
+    bgc += png.data[i + 1]!;
+    bb += png.data[i + 2]!;
+    opaqueCount++;
+  };
+  for (let x = 0; x < png.width; x++) {
+    consider(x, 0);
+    consider(x, png.height - 1);
+  }
+  for (let y = 1; y < png.height - 1; y++) {
+    consider(0, y);
+    consider(png.width - 1, y);
+  }
+  const transparentMode = transparentBorder * 2 >= borderTotal;
+  const bcr = opaqueCount ? br / opaqueCount : 255;
+  const bcg = opaqueCount ? bgc / opaqueCount : 255;
+  const bcb = opaqueCount ? bb / opaqueCount : 255;
+
+  const grid: HexGrid = [];
+  for (let y = 0; y < 16; y++) {
+    const sy = Math.min(png.height - 1, Math.floor(((y + 0.5) * png.height) / 16));
+    const row: Array<string | null> = [];
+    for (let x = 0; x < 16; x++) {
+      const sx = Math.min(png.width - 1, Math.floor(((x + 0.5) * png.width) / 16));
+      const i = (png.width * sy + sx) << 2;
+      if (png.data[i + 3]! < 128) {
+        row.push(null);
+        continue;
+      }
+      if (!transparentMode) {
+        const dr = png.data[i]! - bcr;
+        const dg = png.data[i + 1]! - bcg;
+        const db = png.data[i + 2]! - bcb;
+        if (Math.sqrt(dr * dr + dg * dg + db * db) / Math.sqrt(3) < threshold) {
+          row.push(null); // background — transparent
+          continue;
+        }
+      }
+      const hex = (v: number) => quant(v).toString(16).padStart(2, "0");
+      row.push(`#${hex(png.data[i]!)}${hex(png.data[i + 1]!)}${hex(png.data[i + 2]!)}`);
+    }
+    grid.push(row);
+  }
+  return grid;
+}
+
+const PALETTE_CHARS = "abcdefghijklmnopqrstuvwxyz23456789".split("");
+
+/**
+ * Build a shared palette (char -> colour) across grids and emit
+ * palette-indexed pose rows ('.' = transparent). Rare colours beyond the
+ * palette cap fold into their nearest kept colour.
+ */
+export function paletteFromHexGrids(
+  grids: readonly HexGrid[],
+  maxColors = 32,
+): { palette: Record<string, string>; rows: string[][] } {
+  const counts = new Map<string, number>();
+  for (const grid of grids) {
+    for (const row of grid) {
+      for (const color of row) {
+        if (color) counts.set(color, (counts.get(color) ?? 0) + 1);
+      }
+    }
+  }
+  const ranked = [...counts.entries()].sort((a, b) => b[1] - a[1]).map(([c]) => c);
+  const kept = ranked.slice(0, Math.min(maxColors, PALETTE_CHARS.length));
+  const palette: Record<string, string> = {};
+  kept.forEach((color, i) => {
+    palette[PALETTE_CHARS[i]!] = color;
+  });
+  const nearest = (color: string): string => {
+    if (kept.includes(color)) return color;
+    let best = kept[0]!;
+    let bestD = Infinity;
+    for (const k of kept) {
+      const d =
+        Math.abs(parseInt(color.slice(1, 3), 16) - parseInt(k.slice(1, 3), 16)) +
+        Math.abs(parseInt(color.slice(3, 5), 16) - parseInt(k.slice(3, 5), 16)) +
+        Math.abs(parseInt(color.slice(5, 7), 16) - parseInt(k.slice(5, 7), 16));
+      if (d < bestD) {
+        bestD = d;
+        best = k;
+      }
+    }
+    return best;
+  };
+  const charFor = new Map(kept.map((c, i) => [c, PALETTE_CHARS[i]!] as const));
+  const rows = grids.map((grid) =>
+    grid.map((row) =>
+      row.map((color) => (color ? charFor.get(nearest(color))! : ".")).join(""),
+    ),
+  );
+  return { palette, rows };
+}
+
 function shiftContent(bitmap: string[], dy: number): string[] {
   const blank = ".".repeat(16);
   const moved: string[] = [];
@@ -173,6 +304,27 @@ export function sheetToBitmaps(png: PNG, frameCount: number, opts: BitmapOptions
   return bitmaps;
 }
 
+/** Split a horizontal sheet into per-frame COLOUR grids. */
+export function sheetToHexGrids(png: PNG, frameCount: number, opts: ColorExtractOptions = {}): HexGrid[] {
+  const grids: HexGrid[] = [];
+  for (let f = 0; f < frameCount; f++) {
+    const cellPng = new PNG({ width: Math.floor(png.width / frameCount), height: png.height });
+    const cw = cellPng.width;
+    for (let y = 0; y < png.height; y++) {
+      for (let x = 0; x < cw; x++) {
+        const src = (png.width * y + f * cw + x) << 2;
+        const dst = (cw * y + x) << 2;
+        cellPng.data[dst] = png.data[src]!;
+        cellPng.data[dst + 1] = png.data[src + 1]!;
+        cellPng.data[dst + 2] = png.data[src + 2]!;
+        cellPng.data[dst + 3] = png.data[src + 3]!;
+      }
+    }
+    grids.push(pngToHexGrid(cellPng, opts));
+  }
+  return grids;
+}
+
 /** Assign sheet frames to pose slots (tuipet map for 11-frame strips). */
 export function posesFromFrames(frames: readonly string[][]): Record<PoseName, string[]> {
   const poses = {} as Record<PoseName, string[]>;
@@ -193,6 +345,8 @@ export interface ImagePackOptions {
   chain?: boolean;
   /** Species ink colour (#rrggbb) — the pet renders in this instead of black. */
   ink?: string;
+  /** Colour palette: pose rows index it, pet renders full-colour. */
+  palette?: Record<string, string>;
 }
 
 export function buildImagePack(
@@ -208,7 +362,8 @@ export function buildImagePack(
     poses,
   };
   if (opts.roles) species.roles = opts.roles;
-  if (opts.ink) species.ink = opts.ink;
+  if (opts.palette) species.palette = opts.palette;
+  else if (opts.ink) species.ink = opts.ink;
   const pack: Record<string, unknown> = {
     name: `${opts.name} pack`,
     species: [species],
@@ -270,37 +425,88 @@ export interface FolderPosesResult {
   poses: Record<string, string[]>;
   roles: Record<string, string[]>;
   counts: Record<string, number>;
-  /** Dominant ink colour across all frames, if any. */
+  /** Dominant ink colour across all frames (mono mode). */
   ink?: string;
+  /** Shared colour palette (colour mode). */
+  palette?: Record<string, string>;
   error?: string;
 }
 
 /**
  * Build poses + roles from a folder of activity-named images. `idle` is
  * required; every other activity falls back to the idle loop when absent.
+ * Colour mode (default): photo-faithful palette-indexed rows.
  */
-export function posesFromFolder(dir: string, opts: BitmapOptions = {}): FolderPosesResult {
+export function posesFromFolder(
+  dir: string,
+  opts: BitmapOptions & { color?: boolean } = {},
+): FolderPosesResult {
   const files = readdirSync(dir).filter((f) => /\.(png|jpe?g)$/i.test(f));
+  const color = opts.color ?? true;
   const poses: Record<string, string[]> = {};
   const roles: Record<string, string[]> = {};
   const counts: Record<string, number> = {};
+  const gridsByActivity = new Map<string, HexGrid[]>();
   let idleKeys: string[] | undefined;
   let ink: string | undefined;
 
   for (const activity of ACTIVITIES) {
     const activityFiles = collectActivityFiles(files, activity);
     if (!activityFiles.length) continue;
-    const keys: string[] = [];
-    activityFiles.forEach((file, i) => {
+    const grids: HexGrid[] = [];
+    const monoRows: string[][] = [];
+    for (const file of activityFiles) {
       const png = PNG.sync.read(readFileSync(`${dir}/${file}`));
-      const key = `${activity}${i + 1}`;
-      poses[key] = pngToBitmap(png, opts);
-      keys.push(key);
-      ink = ink ?? dominantInkColor(png, opts);
-    });
-    counts[activity] = keys.length;
-    if (activity === "idle") idleKeys = keys;
-    roles[activity] = keys;
+      if (color) {
+        grids.push(pngToHexGrid(png, { threshold: 60 }));
+      } else {
+        monoRows.push(pngToBitmap(png, opts));
+        ink = ink ?? dominantInkColor(png, opts);
+      }
+    }
+    if (color) {
+      gridsByActivity.set(activity, grids);
+      counts[activity] = grids.length;
+    } else {
+      const keys: string[] = [];
+      monoRows.forEach((rows, i) => {
+        const key = `${activity}${i + 1}`;
+        poses[key] = rows;
+        keys.push(key);
+      });
+      counts[activity] = keys.length;
+      roles[activity] = keys;
+      if (activity === "idle") idleKeys = keys;
+    }
+  }
+
+  if (color) {
+    const all = [...gridsByActivity.values()].flat();
+    if (!all.length) {
+      return { poses, roles, counts, error: "folder needs at least idle1.png (or idle.png / idleA.png)" };
+    }
+    const { palette, rows } = paletteFromHexGrids(all);
+    let off = 0;
+    for (const [activity, grids] of gridsByActivity) {
+      const keys: string[] = [];
+      grids.forEach((_, i) => {
+        const key = `${activity}${i + 1}`;
+        poses[key] = rows[off + i]!;
+        keys.push(key);
+      });
+      off += grids.length;
+      counts[activity] = keys.length;
+      roles[activity] = keys;
+      if (activity === "idle") idleKeys = keys;
+    }
+    if (!idleKeys) {
+      return { poses, roles, counts, error: "folder needs at least idle1.png (or idle.png / idleA.png)" };
+    }
+    roles.walk = idleKeys;
+    for (const activity of ACTIVITIES) {
+      if (!roles[activity]) roles[activity] = idleKeys;
+    }
+    return { poses, roles, counts, palette };
   }
 
   if (!idleKeys) {

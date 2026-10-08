@@ -150,15 +150,16 @@ describe("pose folders: N frames per activity", () => {
           writePng(join(dir, `${activity}${i}.png`), blobPng(32, 32, 12, 10 + i));
         }
       }
-      const r = posesFromFolder(dir, {});
+      const r = posesFromFolder(dir, {}); // default: colour mode
       expect(r.error).toBeUndefined();
       expect(r.counts).toEqual({ idle: 3, code: 2, happy: 1 });
       expect(r.roles.idle).toEqual(["idle1", "idle2", "idle3"]);
       expect(r.roles.walk).toEqual(["idle1", "idle2", "idle3"]);
       expect(r.roles.code).toEqual(["code1", "code2"]);
       expect(r.roles.think).toEqual(["idle1", "idle2", "idle3"]); // fallback
+      expect(r.palette).toBeTruthy();
       // the generated pack validates with the real loader
-      const pack = buildImagePack(r.poses, { name: "Foldermon", roles: r.roles });
+      const pack = buildImagePack(r.poses, { name: "Foldermon", roles: r.roles, palette: r.palette });
       const packDir = join(dir, "x");
       mkdirSync(packDir);
       writeFileSync(join(packDir, "pack.json"), JSON.stringify(pack), "utf8");
