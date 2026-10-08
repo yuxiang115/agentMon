@@ -12,6 +12,7 @@
     "session": "tsx tools/session.ts",
     "packs": "tsx tools/packs.ts",
     "pack:from-tuipet": "tsx tools/pack-from-tuipet.ts",
+    "pack:from-image": "tsx tools/pack-from-image.ts",
     "test": "vitest run",
     "typecheck": "tsc --noEmit"
   },
@@ -19,6 +20,8 @@
     "@earendil-works/pi-coding-agent": "^1.1.0",
     "@earendil-works/pi-tui": "^1.1.0",
     "@types/node": "^22.10.0",
+    "@types/pngjs": "^6.0.5",
+    "pngjs": "^7.0.0",
     "tsx": "^4.19.2",
     "typescript": "^5.7.2",
     "vitest": "^3.0.0"
@@ -28,10 +31,16 @@
     "@earendil-works/pi-tui": "*"
   },
   "peerDependenciesMeta": {
-    "@earendil-works/pi-coding-agent": { "optional": true },
-    "@earendil-works/pi-tui": { "optional": true }
+    "@earendil-works/pi-coding-agent": {
+      "optional": true
+    },
+    "@earendil-works/pi-tui": {
+      "optional": true
+    }
   },
   "pi": {
-    "extensions": ["packages/pi-extension/index.ts"]
+    "extensions": [
+      "packages/pi-extension/index.ts"
+    ]
   }
 }

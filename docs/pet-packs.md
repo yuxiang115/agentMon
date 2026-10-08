@@ -94,6 +94,22 @@ npm run pack:from-tuipet -- --sprites path/to/sprites.json --names "Agumon,Greym
 - `--chain` wires `byte -> first -> second ...` evolution hops with gentle default gates (axes rotate research/implementation/validation along the chain)
 - `--map "think=3,codeA=7"` remaps frame indices if you dislike the defaults
 
+### From any PNG image (no hand-assembling grids)
+
+Skip the character grids entirely — feed an image:
+
+```
+npm run pack:from-image -- --img agumon.png --name 亚古兽 --id agumon --chain
+npm run pack:from-image -- --img sheet.png --frames 11 --name Agumon
+npm run pack:from-image -- --img pose-folder/ --name Agumon
+```
+
+- **single PNG**: all 11 poses auto-derived (bounces/mirror/slump) — any illustration becomes a living pet in seconds
+- **`--frames N`**: horizontal sprite sheet; an 11-frame strip maps with the tuipet pose table below
+- **pose folder**: images named `idleA.png idleB.png think.png search.png codeA.png codeB.png testA.png testB.png happy.png sad.png sleep.png` map 1:1
+- images are area-averaged into 16×14 and grounded like the built-ins; ink = alpha ≥ 0.5 and luminance below `--threshold` (default 140; raise it for pale art)
+- `--out` defaults to the real pets directory, so after generating you only need `/reload` — or `/pets import <generated pack.json>` for instant registration
+
 Default frame mapping (tuipet's 11-frame strip → agentMon poses):
 
 | pose | frame | tuipet role | pose | frame | tuipet role |
