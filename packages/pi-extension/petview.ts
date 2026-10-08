@@ -5,7 +5,7 @@
 import type { Component, TUI } from "@earendil-works/pi-tui";
 import type { ExtensionContext } from "@earendil-works/pi-coding-agent";
 import { activePet, levelFromXp, xpProgress, type GameState } from "../core";
-import { speciesFor } from "../../pets/registry";
+import { poseRowsFor, speciesFor } from "../../pets/registry";
 import { poseToColorGrid, renderColorScene } from "../renderer/src/colorframe";
 import { renderScreen } from "../renderer/src/framebuffer";
 import { scaleRows } from "../renderer/src/scale";
@@ -47,10 +47,10 @@ class PetScreen implements Component {
     const pet = activePet(state);
     if (!pet) return ["agentMon: no pet yet — start a session first."];
     const species = speciesFor(pet.species);
-    const poses = (species.roles[pet.activity] ?? species.roles.idle).map((p) => species.poses[p]);
+    const poseNames = species.roles[pet.activity] ?? species.roles.idle;
     const hold = pet.activity === "sleep" ? SLEEP_BEAT : HOLD;
-    const frame = pickFrame(poses, this.tickN, hold);
     const size = Math.min(petSizeOf(state), Math.max(16, width - 4)); // fit the terminal
+    const frame = pickFrame(poseNames.map((p) => poseRowsFor(species, p, size)), this.tickN, hold);
     const scaled = scaleRows(frame, size);
     const lcd = species.palette
       ? renderColorScene(

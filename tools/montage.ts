@@ -1,24 +1,32 @@
 // Render every pose of a pack.json to one PNG contact sheet — visual QA for
-// imported packs (scale up the 16x16 grids in their palette colours).
+// imported packs (palette colours, 1:1 pixels, no upscaling).
 //
-//   npx tsx tools/montage.ts ~/.pi/agent/agentmon/pets/agumon-pack/pack.json out.png
+//   npx tsx tools/montage.ts <pack.json> <out.png> [layer]
+//   layer: "16" (default, the base poses) or a hi-res layer like "32"/"64"
 //
 // The image is your responsibility — Digimon art is © Bandai; keep it local.
 import { readFileSync, writeFileSync } from "node:fs";
 import { PNG } from "pngjs";
 
-const [packPath, outPath] = process.argv.slice(2);
+const [packPath, outPath, layerArg] = process.argv.slice(2);
 if (!packPath || !outPath) {
-  console.error("usage: npx tsx tools/montage.ts <pack.json> <out.png>");
+  console.error("usage: npx tsx tools/montage.ts <pack.json> <out.png> [layer]");
   process.exit(1);
 }
 const p = JSON.parse(readFileSync(packPath, "utf8"));
 const sp = (p.species as Array<Record<string, unknown>>)[0]!;
 const pal = (sp.palette ?? {}) as Record<string, string>;
-const poses = sp.poses as Record<string, string[]>;
+const poses =
+  layerArg && layerArg !== "16"
+    ? ((sp.hiPoses as Record<string, Record<string, string[]>>)?.[layerArg] ?? sp.poses)
+    : (sp.poses as Record<string, string[]>);
+if (layerArg && layerArg !== "16" && poses === sp.poses) {
+  console.error(`no hi-res layer "${layerArg}" — falling back to the 16x16 base`);
+}
 const order = Object.keys(poses).sort();
-const SCALE = 12, PAD = 6, COLS = 5;
-const cellW = 16 * SCALE + PAD, cellH = 16 * SCALE + PAD;
+const SIZE = poses[order[0]]?.length ?? 16;
+const SCALE = SIZE >= 32 ? 6 : 12, PAD = 6, COLS = 5;
+const cellW = SIZE * SCALE + PAD, cellH = SIZE * SCALE + PAD;
 const rows = Math.ceil(order.length / COLS);
 const png = new PNG({ width: COLS * cellW, height: rows * cellH });
 const rgb = (h: string) => [1, 3, 5].map((i) => parseInt(h.slice(i, i + 2), 16)) as [number, number, number];

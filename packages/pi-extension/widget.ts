@@ -11,7 +11,7 @@
 import type { Component, TUI } from "@earendil-works/pi-tui";
 import type { ExtensionContext } from "@earendil-works/pi-coding-agent";
 import { activePet, levelFromXp, type GameState } from "../core";
-import { speciesFor } from "../../pets/registry";
+import { poseRowsFor, speciesFor } from "../../pets/registry";
 import { poseToColorGrid, renderColorScene } from "../renderer/src/colorframe";
 import { renderScene } from "../renderer/src/framebuffer";
 import { roamBounds } from "../renderer/src/lcd";
@@ -152,9 +152,9 @@ export class PetOverlay implements Component {
     const pet = activePet(this.getState());
     if (!pet) return [];
     const species = speciesFor(pet.species);
-    const poses = (species.roles[pet.activity] ?? species.roles.idle).map((p) => species.poses[p]);
+    const poseNames = species.roles[pet.activity] ?? species.roles.idle;
     const hold = pet.activity === "sleep" ? SLEEP_BEAT : HOLD;
-    const frame = pickFrame(poses, this.tickN, hold);
+    const frame = pickFrame(poseNames.map((p) => poseRowsFor(species, p, this.size)), this.tickN, hold);
     const scaled = scaleRows(frame, this.size);
     const areaW = petAreaWidth(this.size);
     const rows = petCharRows(this.size);

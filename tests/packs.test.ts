@@ -4,6 +4,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { loadPetPacks } from "../pets/packs";
 import {
+  poseRowsFor,
   registerSpecies,
   resetCustomSpecies,
   speciesFor,
@@ -208,5 +209,51 @@ describe("extension integration — /pet list and /pet use", () => {
     const useCtx = ctx();
     await pi.commands.get("pet")!.handler("use nope", useCtx);
     expect(useCtx.ui.notify).toHaveBeenCalledWith(expect.stringContaining("unknown species"), "warning");
+  });
+});
+
+describe("hi-res layers — poseRowsFor picks the right one", () => {
+  const layerSpecies = {
+    id: "layermon",
+    name: "Layermon",
+    stage: "branch" as const,
+    poses: { idle1: Array.from({ length: 16 }, () => "a".repeat(16)) },
+    roles: { idle: ["idle1"] },
+    palette: { a: "#ff0000", b: "#00ff00", c: "#0000ff" },
+    hiPoses: {
+      "32": { idle1: Array.from({ length: 32 }, () => "b".repeat(32)) },
+      "64": { idle1: Array.from({ length: 64 }, () => "c".repeat(64)) },
+    },
+  };
+
+  it("uses the base at 16, the smallest layer >= size above it", () => {
+    const sp = { ...layerSpecies };
+    expect(poseRowsFor(sp, "idle1", 16)).toHaveLength(16);
+    expect(poseRowsFor(sp, "idle1", 17)[0]![0]).toBe("b"); // 32-layer
+    expect(poseRowsFor(sp, "idle1", 32)).toHaveLength(32);
+    expect(poseRowsFor(sp, "idle1", 48)[0]![0]).toBe("c"); // 64-layer
+    expect(poseRowsFor(sp, "idle1", 60)).toHaveLength(64); // clamps to largest
+  });
+
+  it("falls back to the 16x16 base without layers or for unknown poses", () => {
+    expect(poseRowsFor({ ...layerSpecies, hiPoses: undefined }, "idle1", 48)).toHaveLength(16);
+    expect(poseRowsFor(layerSpecies, "nope", 48)).toHaveLength(16); // idle fallback
+  });
+
+  it("the loader rejects malformed layers", () => {
+    const bad = {
+      name: "Bad layers pack",
+      species: [
+        {
+          ...layerSpecies,
+          hiPoses: { "32": { idle1: Array.from({ length: 16 }, () => "b".repeat(16)) } },
+        },
+      ],
+    };
+    mkdirSync(join(packsDir, "bl-pack"), { recursive: true });
+    writeFileSync(join(packsDir, "bl-pack", "pack.json"), JSON.stringify(bad), "utf8");
+    const loaded = loadPetPacks(packsDir);
+    expect(loaded.errors.join("\n")).toContain("32 rows of 32");
+    expect(loaded.species).toHaveLength(0);
   });
 });

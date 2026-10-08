@@ -127,6 +127,8 @@ export interface ColorExtractOptions {
    * as part of the sprite (default 60). Pixels keep their OWN colour.
    */
   threshold?: number;
+  /** Output grid edge in pixels (default 16). 32/64 feed the hi-res layers. */
+  size?: number;
 }
 
 const quant = (v: number): number => Math.min(255, Math.round(v / 32) * 32);
@@ -208,7 +210,7 @@ export function pngToHexGrid(png: PNG, opts: ColorExtractOptions = {}): HexGrid 
       }
     }
   }
-  const size = 16;
+  const size = opts.size ?? 16;
   const grid: HexGrid = Array.from({ length: size }, () => Array<string | null>(size).fill(null));
   if (x1 < 0) return grid; // no content at all
   const cropW = x1 - x0 + 1;
@@ -287,10 +289,11 @@ function neutralBand(color: string): Band {
   return lum < 85 ? "dark" : lum > 170 ? "light" : "mid";
 }
 
-export function paletteFromHexGrids(
+/** Select the kept palette colours (char -> #rrggbb) from all grids' pixels. */
+export function buildPaletteFromHexGrids(
   grids: readonly HexGrid[],
   maxColors = 32,
-): { palette: Record<string, string>; rows: string[][] } {
+): Record<string, string> {
   const counts = new Map<string, number>();
   for (const grid of grids) {
     for (const row of grid) {
@@ -314,8 +317,16 @@ export function paletteFromHexGrids(
   kept.forEach((color, i) => {
     palette[PALETTE_CHARS[i]!] = color;
   });
+  return palette;
+}
+
+/** Index grids onto a palette ('.' = transparent), folding off-palette colours. */
+export function applyPalette(
+  grids: readonly HexGrid[],
+  palette: Record<string, string>,
+): string[][] {
+  const kept = Object.values(palette);
   const nearest = (color: string): string => {
-    if (kept.includes(color)) return color;
     let best = kept[0]!;
     let bestD = Infinity;
     for (const k of kept) {
@@ -328,12 +339,29 @@ export function paletteFromHexGrids(
     return best;
   };
   const charFor = new Map(kept.map((c, i) => [c, PALETTE_CHARS[i]!] as const));
-  const rows = grids.map((grid) =>
+  return grids.map((grid) =>
     grid.map((row) =>
       row.map((color) => (color ? charFor.get(nearest(color))! : ".")).join(""),
     ),
   );
-  return { palette, rows };
+}
+
+/**
+ * Build a shared palette (char -> colour) across grids and emit
+ * palette-indexed pose rows ('.' = transparent). Two noise filters:
+ *  - ranked colours closer than MIN_SEPARATION (L1) to a kept colour fold in;
+ *  - LOW-SATURATION (neutral) candidates collapse to one per luminance band
+ *    (dark / mid / light) — anti-aliasing between outline and background
+ *    produces a whole grey RAMP that separation alone can't stop (each step
+ *    is far enough from the last), but art only ever has one true neutral
+ *    per band (the GPT converter's K/S/W).
+ */
+export function paletteFromHexGrids(
+  grids: readonly HexGrid[],
+  maxColors = 32,
+): { palette: Record<string, string>; rows: string[][] } {
+  const palette = buildPaletteFromHexGrids(grids, maxColors);
+  return { palette, rows: applyPalette(grids, palette) };
 }
 
 function shiftContent(bitmap: string[], dy: number): string[] {
@@ -436,6 +464,8 @@ export interface ImagePackOptions {
   ink?: string;
   /** Colour palette: pose rows index it, pet renders full-colour. */
   palette?: Record<string, string>;
+  /** Hi-res pose layers ({"32", "64"}) — /pet size above 16 gains detail. */
+  hiPoses?: Record<string, Record<string, string[]>>;
 }
 
 export function buildImagePack(
@@ -453,6 +483,7 @@ export function buildImagePack(
   if (opts.roles) species.roles = opts.roles;
   if (opts.palette) species.palette = opts.palette;
   else if (opts.ink) species.ink = opts.ink;
+  if (opts.hiPoses) species.hiPoses = opts.hiPoses;
   const pack: Record<string, unknown> = {
     name: `${opts.name} pack`,
     species: [species],
@@ -518,13 +549,20 @@ export interface FolderPosesResult {
   ink?: string;
   /** Shared colour palette (colour mode). */
   palette?: Record<string, string>;
+  /** Hi-res layers ({"32": poses, "64": poses}), colour mode from images. */
+  hiPoses?: Record<string, Record<string, string[]>>;
   error?: string;
 }
+
+/** Hi-res layers extracted from source images — /pet size gains real detail. */
+export const HI_LAYERS = [32, 64] as const;
 
 /**
  * Build poses + roles from a folder of activity-named images. `idle` is
  * required; every other activity falls back to the idle loop when absent.
- * Colour mode (default): photo-faithful palette-indexed rows.
+ * Colour mode (default): photo-faithful palette-indexed rows at 16x16 PLUS
+ * hi-res layers resampled from the originals (a shared palette across all
+ * sizes keeps colours consistent when the render switches layers).
  */
 export function posesFromFolder(
   dir: string,
@@ -536,6 +574,7 @@ export function posesFromFolder(
   const roles: Record<string, string[]> = {};
   const counts: Record<string, number> = {};
   const gridsByActivity = new Map<string, HexGrid[]>();
+  const hiGridsByActivity = new Map<string, Map<number, HexGrid[]>>();
   let idleKeys: string[] | undefined;
   let ink: string | undefined;
 
@@ -543,11 +582,17 @@ export function posesFromFolder(
     const activityFiles = collectActivityFiles(files, activity);
     if (!activityFiles.length) continue;
     const grids: HexGrid[] = [];
+    const hi = new Map<number, HexGrid[]>();
     const monoRows: string[][] = [];
     for (const file of activityFiles) {
       const png = PNG.sync.read(readFileSync(`${dir}/${file}`));
       if (color) {
         grids.push(pngToHexGrid(png, { threshold: opts.threshold ?? 60 }));
+        for (const layer of HI_LAYERS) {
+          const list = hi.get(layer) ?? [];
+          list.push(pngToHexGrid(png, { threshold: opts.threshold ?? 60, size: layer }));
+          hi.set(layer, list);
+        }
       } else {
         monoRows.push(pngToBitmap(png, opts));
         ink = ink ?? dominantInkColor(png, opts);
@@ -555,6 +600,7 @@ export function posesFromFolder(
     }
     if (color) {
       gridsByActivity.set(activity, grids);
+      hiGridsByActivity.set(activity, hi);
       counts[activity] = grids.length;
     } else {
       const keys: string[] = [];
@@ -574,7 +620,12 @@ export function posesFromFolder(
     if (!all.length) {
       return { poses, roles, counts, error: "folder needs at least idle1.png (or idle.png / idleA.png)" };
     }
-    const { palette, rows } = paletteFromHexGrids(all);
+    // ONE palette, defined by the 16x16 grids (the colour identity the user
+    // sees at the default size) — hi-res layers snap onto it, so their
+    // anti-aliased edge blends fold into real colours instead of flooding
+    // the palette with shades (the GPT converter's hard-palette behaviour)
+    const palette = buildPaletteFromHexGrids(all);
+    const rows = applyPalette(all, palette);
     let off = 0;
     for (const [activity, grids] of gridsByActivity) {
       const keys: string[] = [];
@@ -595,7 +646,19 @@ export function posesFromFolder(
     for (const activity of ACTIVITIES) {
       if (!roles[activity]) roles[activity] = idleKeys;
     }
-    return { poses, roles, counts, palette };
+    const hiPoses: Record<string, Record<string, string[]>> = {};
+    for (const layer of HI_LAYERS) {
+      const layerPoses: Record<string, string[]> = {};
+      for (const [activity, grids] of gridsByActivity) {
+        const layerGrids = hiGridsByActivity.get(activity)?.get(layer) ?? [];
+        const indexed = applyPalette(layerGrids, palette);
+        grids.forEach((_, i) => {
+          layerPoses[`${activity}${i + 1}`] = indexed[i]!;
+        });
+      }
+      hiPoses[String(layer)] = layerPoses;
+    }
+    return { poses, roles, counts, palette, hiPoses };
   }
 
   if (!idleKeys) {

@@ -67,6 +67,8 @@ let poses: Record<string, string[]>;
 let roles: Record<string, string[]> | undefined;
 let ink: string | undefined;
 let palette: Record<string, string> | undefined;
+let hiPoses: Record<string, Record<string, string[]>> | undefined;
+let folder: ReturnType<typeof posesFromFolder> | undefined;
 try {
   let entries: Dirent[] | null = null;
   try {
@@ -77,7 +79,7 @@ try {
 
   if (entries && !imgArg.toLowerCase().endsWith(".png")) {
     // pose folder: idle1.png idle2.png ... code1.png ... (any subset, idle required)
-    const folder = posesFromFolder(imgArg, { threshold, color: !mono });
+    folder = posesFromFolder(imgArg, { threshold, color: !mono });
     if (folder.error) {
       console.error(`✗ ${imgArg}: ${folder.error}`);
       process.exit(1);
@@ -86,6 +88,7 @@ try {
     roles = folder.roles;
     ink = folder.ink;
     palette = folder.palette;
+    hiPoses = folder.hiPoses;
     console.log(
       `pose folder (${mono ? "mono" : "colour"}): ` +
         Object.entries(folder.counts)
@@ -130,9 +133,21 @@ try {
   process.exit(1);
 }
 
-const pack = buildImagePack(poses, { name, id: arg("--id"), stage, chain, roles, ink, palette });
-if (palette) console.log(`palette: ${Object.keys(palette).length} colours`);
-else if (ink) console.log(`ink colour: ${ink}`);
+const pack = buildImagePack(poses, {
+  name,
+  id: arg("--id"),
+  stage,
+  chain,
+  roles,
+  ink,
+  palette,
+  hiPoses: folder?.hiPoses ?? undefined,
+});
+if (palette) {
+  const sp = (pack.species as Array<Record<string, unknown>>)[0]!;
+  const layers = Object.keys((sp.hiPoses as Record<string, unknown>) ?? {}).join("/") || "none";
+  console.log(`palette: ${Object.keys(palette).length} colours · hi-res layers: ${layers}`);
+} else if (ink) console.log(`ink colour: ${ink}`);
 const slug = slugify(String(pack.name));
 const packDir = join(outDir, slug);
 mkdirSync(packDir, { recursive: true });

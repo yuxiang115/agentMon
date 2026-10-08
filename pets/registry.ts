@@ -47,6 +47,13 @@ export interface SpeciesDef {
    */
   palette?: Record<string, string>;
   /**
+   * Higher-resolution pose layers resampled from the ORIGINAL images
+   * ({"32": {...}, "64": {...}}), keyed like `poses`. Image imports store
+   * these so `/pet size` above 16 gains real detail instead of blocky
+   * upscaling of the 16x16 grid (the GPT-converter's 32x32 lesson).
+   */
+  hiPoses?: Record<string, Record<string, string[]>>;
+  /**
    * activity -> pose loop (the coding role grammar). A loop may hold any
    * number of frames; the animator cycles them at ~3 switches/sec.
    */
@@ -90,4 +97,22 @@ export function speciesSource(id: string): "builtin" | "pack" | "unknown" {
 /** Species lookup with a safe fallback to the baby form. */
 export function speciesFor(id: string): SpeciesDef {
   return customSpecies.get(id) ?? SPECIES[id] ?? BYTE;
+}
+
+/**
+ * The pose rows to render at `size`: the smallest hi-res layer that is at
+ * least `size` (downsampled the rest of the way), the largest layer when
+ * `size` exceeds them all, or the 16x16 base when there are no layers.
+ */
+export function poseRowsFor(species: SpeciesDef, poseName: string, size: number): string[] {
+  const base = species.poses[poseName] ?? species.poses[species.roles.idle[0]!] ?? [];
+  const baseSize = base.length || 16;
+  if (!species.hiPoses || size <= baseSize) return base;
+  const layers = Object.keys(species.hiPoses)
+    .map(Number)
+    .filter((n) => Number.isInteger(n) && n > baseSize)
+    .sort((a, b) => a - b);
+  const target = layers.find((n) => n >= size) ?? layers[layers.length - 1];
+  if (target === undefined) return base;
+  return species.hiPoses[String(target)]?.[poseName] ?? base;
 }

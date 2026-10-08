@@ -184,6 +184,49 @@ describe("pose folders: N frames per activity", () => {
     expect(collectActivityFiles(files, "idle")).toEqual(["idleA.png", "idle1.png", "idle2.png", "idle10.png"]);
   });
 
+  it("colour folders carry 32/64 hi-res layers resampled from the source", () => {
+    const dir = mkdtempSync(join(tmpdir(), "agentmon-layers-"));
+    try {
+      writePng(join(dir, "idle1.png"), blobPng(48, 48, 20, 16));
+      writePng(join(dir, "code1.png"), blobPng(48, 48, 20, 16));
+      const r = posesFromFolder(dir, {});
+      expect(r.error).toBeUndefined();
+      expect(Object.keys(r.hiPoses ?? {})).toEqual(["32", "64"]);
+      const baseChars = new Set(Object.values(r.poses).map((rows) => rows.join("")).join(""));
+      for (const layer of ["32", "64"]) {
+        const n = Number(layer);
+        expect(Object.keys(r.hiPoses![layer]!)).toEqual(["idle1", "code1"]);
+        for (const rows of Object.values(r.hiPoses![layer]!)) {
+          expect(rows).toHaveLength(n);
+          expect(rows.every((row) => row.length === n)).toBe(true);
+          // shared palette: layer rows only use chars the 16x16 base uses
+          for (const ch of rows.join("")) expect(baseChars.has(ch)).toBe(true);
+        }
+      }
+      // the pack with layers validates with the real loader
+      const pack = buildImagePack(r.poses, {
+        name: "Layermon",
+        roles: r.roles,
+        palette: r.palette,
+        hiPoses: r.hiPoses,
+      });
+      const root = mkdtempSync(join(tmpdir(), "agentmon-layer-root-"));
+      try {
+        mkdirSync(join(root, "lm-pack"), { recursive: true });
+        writeFileSync(join(root, "lm-pack", "pack.json"), JSON.stringify(pack), "utf8");
+        const loaded = loadPetPacks(root);
+        expect(loaded.errors).toEqual([]);
+        const sp = loaded.species[0]!;
+        expect(sp.hiPoses?.["64"]?.idle1).toHaveLength(64);
+        expect(sp.hiPoses?.["32"]?.code1![0]).toHaveLength(32);
+      } finally {
+        rmSync(root, { recursive: true, force: true });
+      }
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
   it("requires at least one idle frame", () => {
     const dir = mkdtempSync(join(tmpdir(), "agentmon-nofolder-"));
     try {

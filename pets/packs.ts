@@ -44,22 +44,22 @@ export interface PetPackLoadResult {
   errors: string[];
 }
 
-function validMonoPose(pose: unknown): boolean {
+function validMonoPose(pose: unknown, size = 16): boolean {
   return (
     Array.isArray(pose) &&
-    pose.length === 16 &&
-    pose.every((row) => typeof row === "string" && row.length === 16 && /^[01#.]*$/.test(row)) &&
+    pose.length === size &&
+    pose.every((row) => typeof row === "string" && row.length === size && /^[01#.]*$/.test(row)) &&
     pose.some((row) => /[1#]/.test(row))
   );
 }
 
-function validColorPose(pose: unknown, paletteKeys: ReadonlySet<string>): boolean {
+function validColorPose(pose: unknown, paletteKeys: ReadonlySet<string>, size = 16): boolean {
   return (
     Array.isArray(pose) &&
-    pose.length === 16 &&
+    pose.length === size &&
     pose.every(
       (row) =>
-        typeof row === "string" && row.length === 16 && [...row].every((c) => c === "." || paletteKeys.has(c)),
+        typeof row === "string" && row.length === size && [...row].every((c) => c === "." || paletteKeys.has(c)),
     ) &&
     pose.some((row) => [...row].some((c) => c !== "."))
   );
@@ -167,6 +167,44 @@ function parseSpecies(
     }
     roles = DEFAULT_ROLES;
   }
+  // optional hi-res layers: {"32": {poseName: N x N rows}, ...} — same pose
+  // names as the base, square rows of palette chars (mono packs: ink chars)
+  let hiPoses: Record<string, Record<string, string[]>> | undefined;
+  if (s.hiPoses !== undefined) {
+    if (typeof s.hiPoses !== "object" || s.hiPoses === null || Array.isArray(s.hiPoses)) {
+      errors.push(`${context}/${id}: hiPoses must be an object of layer-size -> poses`);
+      return null;
+    }
+    hiPoses = {};
+    for (const [layerKey, layerRaw] of Object.entries(s.hiPoses as Record<string, unknown>)) {
+      const n = Number(layerKey);
+      if (!Number.isInteger(n) || n <= 16 || n > 128) {
+        errors.push(`${context}/${id}: hiPoses layer "${layerKey}" must be an integer size 17..128`);
+        return null;
+      }
+      if (typeof layerRaw !== "object" || layerRaw === null) {
+        errors.push(`${context}/${id}: hiPoses layer "${layerKey}" must be an object of poses`);
+        return null;
+      }
+      const layer: Record<string, string[]> = {};
+      for (const [poseName, pose] of Object.entries(layerRaw as Record<string, unknown>)) {
+        if (!poses[poseName]) {
+          errors.push(`${context}/${id}: hiPoses layer "${layerKey}" pose "${poseName}" has no 16x16 base pose`);
+          return null;
+        }
+        const ok = palette ? validColorPose(pose, paletteKeys, n) : validMonoPose(pose, n);
+        if (!ok) {
+          errors.push(
+            `${context}/${id}: hiPoses layer "${layerKey}" pose ${poseName} must be ${n} rows of ${n} chars${palette ? " of palette chars/'.'" : " of 1/0/#/."}`,
+          );
+          return null;
+        }
+        layer[poseName] = pose as string[];
+      }
+      if (Object.keys(layer).length) hiPoses[layerKey] = layer;
+    }
+    if (!Object.keys(hiPoses).length) hiPoses = undefined;
+  }
   return {
     id,
     name,
@@ -176,6 +214,7 @@ function parseSpecies(
     palette,
     poses,
     roles,
+    hiPoses,
   };
 }
 
