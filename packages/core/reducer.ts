@@ -68,7 +68,7 @@ export const EVENT_ACTIVITY: Partial<Record<EventType, Activity>> = {
   READ: "search",
   SEARCH: "search",
   THINK_START: "think",
-  THINK_END: "think",
+  THINK_END: "idle",
   CODE_WRITE: "code",
   COMMAND_RUN: "code",
   TEST_START: "test",

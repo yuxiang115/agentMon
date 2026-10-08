@@ -214,6 +214,38 @@ describe("agentMon extension entry (C6: events really reach the pet)", () => {
     expect(state.pets[state.activePetId].name).toBe("Byte Jr");
   });
 
+  it("thinking links to the agent lifecycle: agent_start thinks, agent_end rests", () => {
+    const pi = boot();
+    fire(pi, "session_start", {});
+    fire(pi, "agent_start", {});
+    expect(JSON.parse(readStateFile(dir)).pets[JSON.parse(readStateFile(dir)).activePetId].activity).toBe("think");
+    fire(pi, "tool_call", { toolCallId: "a", toolName: "read", input: {} });
+    expect(JSON.parse(readStateFile(dir)).pets[JSON.parse(readStateFile(dir)).activePetId].activity).toBe("search");
+    fire(pi, "agent_end", {});
+    expect(JSON.parse(readStateFile(dir)).pets[JSON.parse(readStateFile(dir)).activePetId].activity).toBe("idle");
+  });
+
+  it("/pets debug shows the event trace", async () => {
+    const pi = boot();
+    fire(pi, "session_start", {});
+    fire(pi, "agent_start", {});
+    fire(pi, "tool_call", { toolCallId: "a", toolName: "bash", input: { command: "npm test" } });
+
+    const ctx = mockCtx();
+    let screen: { render(w: number): string[] } | undefined;
+    ctx.ui.custom = async (factory: (...args: never[]) => never) => {
+      screen = factory({ requestRender: () => {} } as never, {} as never, {} as never, (() => {}) as never);
+      return undefined;
+    };
+    await pi.commands.get("pets")!.handler("debug", ctx);
+    expect(screen).toBeTruthy();
+    const text = screen!.render(100).join("\n");
+    expect(text).toContain("agent_start");
+    expect(text).toContain("tool_call:bash");
+    expect(text).toContain("TEST_START");
+    expect(text).toContain("Byte");
+  });
+
   it("state survives across extension restarts (reload)", () => {
     const pi1 = boot();
     fire(pi1, "session_start", {});

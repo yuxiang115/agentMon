@@ -79,6 +79,13 @@ describe("PiAdapter", () => {
     expect(evs).toMatchObject([{ type: "TEST_START" }]);
   });
 
+  it("agent lifecycle: start thinks, end rests, settle completes", () => {
+    const a = new PiAdapter();
+    expect(a.onAgentStart(T0, CTX)).toMatchObject([{ type: "THINK_START" }]);
+    expect(a.onAgentEnd(T0 + 1000, CTX)).toMatchObject([{ type: "THINK_END" }]);
+    expect(a.onAgentSettled(T0 + 2000, CTX)).toMatchObject([{ type: "TASK_COMPLETE" }]);
+  });
+
   it("feeds the real reducer end-to-end (activity follows the events)", () => {
     let state = addPet(freshState(T0), createPet({ name: "Byte", now: T0 }));
     const a = new PiAdapter();

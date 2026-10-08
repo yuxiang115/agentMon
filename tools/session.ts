@@ -18,14 +18,16 @@ const T0 = 1_700_000_000_000;
 
 const script: Array<{ label: string; type: EventType; afterMs: number }> = [
   { label: "session opens", type: "SESSION_START", afterMs: 0 },
+  { label: "agent starts thinking", type: "THINK_START", afterMs: 300 },
   { label: "agent reads source", type: "READ", afterMs: 400 },
   { label: "agent greps the codebase", type: "SEARCH", afterMs: 900 },
-  { label: "agent thinks", type: "THINK_START", afterMs: 600 },
-  { label: "agent edits", type: "CODE_WRITE", afterMs: 1_200 },
+  { label: "agent thinks again", type: "THINK_START", afterMs: 500 },
+  { label: "agent edits", type: "CODE_WRITE", afterMs: 1_000 },
   { label: "agent edits again", type: "CODE_WRITE", afterMs: 800 },
   { label: "agent runs vitest", type: "TEST_START", afterMs: 700 },
   { label: "a test fails", type: "TEST_FAIL", afterMs: 3_000 },
-  { label: "agent fixes it, reruns", type: "TEST_PASS", afterMs: 8_000 },
+  { label: "agent thinks how to fix it", type: "THINK_START", afterMs: 800 },
+  { label: "agent fixes it, reruns", type: "TEST_PASS", afterMs: 7_000 },
   { label: "task complete", type: "TASK_COMPLETE", afterMs: 1_500 },
   { label: "session ends", type: "SESSION_END", afterMs: 4_000 },
 ];

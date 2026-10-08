@@ -116,6 +116,16 @@ export class PiAdapter {
     return [ev("SESSION_END", ts, ctx)];
   }
 
+  /** The model starts generating — the pet starts thinking along. */
+  onAgentStart(ts: number, ctx: EventContext): CodingEvent[] {
+    return [ev("THINK_START", ts, ctx)];
+  }
+
+  /** The agent run finished — the pet stops thinking and rests. */
+  onAgentEnd(ts: number, ctx: EventContext): CodingEvent[] {
+    return [ev("THINK_END", ts, ctx)];
+  }
+
   /** The agent finished responding to the user's request. */
   onAgentSettled(ts: number, ctx: EventContext): CodingEvent[] {
     return [ev("TASK_COMPLETE", ts, ctx)];

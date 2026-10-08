@@ -27,6 +27,7 @@ import { PetStore } from "../storage/store";
 import { PiAdapter, type EventContext } from "../adapters/pi/map";
 import { installPetDisplay, type PetDisplayHandle } from "./widget";
 import { openPetView } from "./petview";
+import { openDebugView, type TraceEntry } from "./debug";
 import { mulberry32 } from "../renderer/src/animation";
 import { loadPetPacks } from "../../pets/packs";
 import {
@@ -62,6 +63,14 @@ export default function agentmon(pi: ExtensionAPI, options: AgentMonOptions = {}
   let display: PetDisplayHandle | undefined;
   let ui: ExtensionContext["ui"] | null = null;
   let packsLoaded = false;
+  /** Ring of recent raw-Pi-event -> mapped-event decisions, for /pets debug. */
+  const trace: TraceEntry[] = [];
+  const TRACE_LIMIT = 50;
+
+  function traced(source: string, mapped: string[]): void {
+    trace.push({ at: now(), source, mapped });
+    if (trace.length > TRACE_LIMIT) trace.shift();
+  }
 
   function loadPacks(ctx: ExtensionContext): void {
     if (packsLoaded) return;
@@ -112,38 +121,56 @@ export default function agentmon(pi: ExtensionAPI, options: AgentMonOptions = {}
     loadPacks(ctx);
     ui = ctx.ui;
     ensurePet();
-    apply(adapter.onSessionStart(now(), metaFrom(ctx)));
+    const evs = adapter.onSessionStart(now(), metaFrom(ctx));
+    traced("session_start", evs.map((e) => e.type));
+    apply(evs);
     if (ctx.hasUI && !display) {
       display = installPetDisplay(ctx, () => store.read(now()), { tickMs: options.tickMs, rng });
     }
   });
 
+  pi.on("agent_start", (_event, ctx) => {
+    const evs = adapter.onAgentStart(now(), metaFrom(ctx));
+    traced("agent_start", evs.map((e) => e.type));
+    apply(evs);
+  });
+
+  pi.on("agent_end", (_event, ctx) => {
+    const evs = adapter.onAgentEnd(now(), metaFrom(ctx));
+    traced("agent_end", evs.map((e) => e.type));
+    apply(evs);
+  });
+
   pi.on("tool_call", (event, ctx) => {
-    apply(
-      adapter.onToolCall(
-        { toolCallId: event.toolCallId, toolName: event.toolName, input: event.input as Record<string, unknown> },
-        now(),
-        metaFrom(ctx),
-      ),
+    const evs = adapter.onToolCall(
+      { toolCallId: event.toolCallId, toolName: event.toolName, input: event.input as Record<string, unknown> },
+      now(),
+      metaFrom(ctx),
     );
+    traced(`tool_call:${event.toolName}`, evs.map((e) => e.type));
+    apply(evs);
   });
 
   pi.on("tool_execution_end", (event, ctx) => {
-    apply(
-      adapter.onToolResult(
-        { toolCallId: event.toolCallId, toolName: event.toolName, isError: event.isError },
-        now(),
-        metaFrom(ctx),
-      ),
+    const evs = adapter.onToolResult(
+      { toolCallId: event.toolCallId, toolName: event.toolName, isError: event.isError },
+      now(),
+      metaFrom(ctx),
     );
+    traced(`tool_execution_end:${event.toolName}`, evs.map((e) => e.type));
+    apply(evs);
   });
 
   pi.on("agent_settled", (_event, ctx) => {
-    apply(adapter.onAgentSettled(now(), metaFrom(ctx)));
+    const evs = adapter.onAgentSettled(now(), metaFrom(ctx));
+    traced("agent_settled", evs.map((e) => e.type));
+    apply(evs);
   });
 
   pi.on("session_shutdown", (_event, ctx) => {
-    apply(adapter.onSessionShutdown(now(), metaFrom(ctx)));
+    const evs = adapter.onSessionShutdown(now(), metaFrom(ctx));
+    traced("session_shutdown", evs.map((e) => e.type));
+    apply(evs);
     display?.dispose();
     display = undefined;
     ui?.setStatus?.("agentmon", undefined);
@@ -164,7 +191,7 @@ export default function agentmon(pi: ExtensionAPI, options: AgentMonOptions = {}
   });
 
   pi.registerCommand("pets", {
-    description: "agentMon pets — list · use <species> · ui · rename <name> · help",
+    description: "agentMon pets — list · use <species> · ui · rename <name> · debug · help",
     getArgumentCompletions: (prefix: string) => {
       const p = prefix.trim();
       if (p.startsWith("use")) {
@@ -178,7 +205,7 @@ export default function agentmon(pi: ExtensionAPI, options: AgentMonOptions = {}
             description: `${s.name} (${speciesSource(s.id)})`,
           }));
       }
-      return ["list", "use", "ui", "rename", "help"]
+      return ["list", "use", "ui", "rename", "debug", "help"]
         .filter((s) => s.startsWith(p))
         .map((s) => ({ value: s, label: s }));
     },
@@ -247,6 +274,29 @@ export default function agentmon(pi: ExtensionAPI, options: AgentMonOptions = {}
         display?.refresh(state);
         ui?.setStatus?.("agentmon", footerStatus(state));
         ctx.ui?.notify?.(`agentMon: your pet is now called ${name}`, "info");
+        return;
+      }
+
+      if (sub === "debug") {
+        ensurePet();
+        if (ctx.mode !== "tui" || !ctx.hasUI) {
+          ctx.ui?.notify?.("agentMon: /pets debug needs the interactive TUI", "warning");
+          return;
+        }
+        await openDebugView(ctx, {
+          trace: () => trace,
+          lines: () => {
+            const state = store.read(now());
+            const pet = state.activePetId ? state.pets[state.activePetId] : undefined;
+            if (!pet) return ["no pet"];
+            const c = pet.counters;
+            return [
+              ` pet: ${pet.name} (${pet.species}) Lv.${levelFromXp(c.xp)} · activity ${pet.activity} · mode ${pet.behaviorMode.toLowerCase()}`,
+              ` counts: reads ${c.reads} · writes ${c.writes} · commands ${c.commands} · tests ${c.testsStarted} (${c.testsPassed}✓/${c.testsFailed}✗) · tasks ${c.tasksCompleted}`,
+              ` state file: ${store.path}`,
+            ];
+          },
+        });
         return;
       }
 
