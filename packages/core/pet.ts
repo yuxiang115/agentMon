@@ -109,6 +109,11 @@ export interface GameState {
   pets: Record<string, PetState>;
   /** Last mutation time; persistence stamps it on save. */
   savedAt: number;
+  /**
+   * Display settings — extension-managed (e.g. `/pet size`), ignored by the
+   * core reducer; survives saves because every mutation spreads the state.
+   */
+  ui?: { petSize?: number };
 }
 
 export interface CreatePetOptions {

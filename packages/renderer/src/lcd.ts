@@ -21,8 +21,8 @@ export const CELL = 16;
 export const WINDOW: Rect = { x0: 0, x1: COLS, y0: 0, y1: PXH };
 
 /** (leftBound, rightBound) so a roaming sprite stays inside the grid. */
-export function roamBounds(spriteW = CELL): [number, number] {
-  return [0, COLS - spriteW];
+export function roamBounds(spriteW = CELL, areaW = COLS): [number, number] {
+  return [0, areaW - spriteW];
 }
 
 export function spriteWidth(sprite: Bitmap | null): number {

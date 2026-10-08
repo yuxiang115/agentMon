@@ -5,7 +5,8 @@
 //   pi install git:github.com/yuxiang115/agentMon
 // The pet rides along: reads/writes/tests drive it, a non-capturing LCD panel
 // floats top-right (pi-pets' overlay trick), the footer carries a compact
-// status, /pet opens the full view and /pets manages pets & packs.
+// status, and /pet does everything — no args opens the full view, subcommands
+// manage species, size (16-60), the panel, and imports.
 //
 // The default state dir mirrors Pi's agent-dir resolution (PI_CODING_AGENT_DIR
 // env override, ~/.pi/agent otherwise) without importing the coding-agent
@@ -25,7 +26,7 @@ import {
 import type { CodingEvent } from "../events/types";
 import { PetStore } from "../storage/store";
 import { PiAdapter, type EventContext } from "../adapters/pi/map";
-import { installPetDisplay, type PetDisplayHandle } from "./widget";
+import { installPetDisplay, petSizeOf, clampPetSize, type PetDisplayHandle } from "./widget";
 import { openPetView } from "./petview";
 import { openDebugView, type TraceEntry } from "./debug";
 import { mulberry32 } from "../renderer/src/animation";
@@ -66,6 +67,8 @@ export default function agentmon(pi: ExtensionAPI, options: AgentMonOptions = {}
   /** Ring of recent raw-Pi-event -> mapped-event decisions, for /pets debug. */
   const trace: TraceEntry[] = [];
   const TRACE_LIMIT = 50;
+  /** Subcommands of the single /pet command (no args = full view). */
+  const PET_SUBS = ["list", "use", "size", "import", "ui", "rename", "debug", "help"];
   /** Evolution rules register once per pack slug (imports may re-run loading). */
   const registeredRuleSlugs = new Set<string>();
 
@@ -133,7 +136,11 @@ export default function agentmon(pi: ExtensionAPI, options: AgentMonOptions = {}
     traced("session_start", evs.map((e) => e.type));
     apply(evs);
     if (ctx.hasUI && !display) {
-      display = installPetDisplay(ctx, () => store.read(now()), { tickMs: options.tickMs, rng });
+      display = installPetDisplay(ctx, () => store.read(now()), {
+        tickMs: options.tickMs,
+        rng,
+        size: petSizeOf(store.read(now())),
+      });
     }
   });
 
@@ -185,21 +192,9 @@ export default function agentmon(pi: ExtensionAPI, options: AgentMonOptions = {}
     ui = null;
   });
 
+  // ONE command: /pet with subcommands (the old /pets was folded in here).
   pi.registerCommand("pet", {
-    description: "Open the agentMon pet view",
-    handler: async (_args: string, ctx: ExtensionContext) => {
-      loadPacks(ctx);
-      ensurePet();
-      if (ctx.mode !== "tui" || !ctx.hasUI) {
-        ctx.ui?.notify?.("agentMon: /pet needs the interactive TUI", "warning");
-        return;
-      }
-      await openPetView(ctx, () => store.read(now()), { tickMs: options.tickMs });
-    },
-  });
-
-  pi.registerCommand("pets", {
-    description: "agentMon pets — list · use <species> · import <path> · ui · rename <name> · debug · help",
+    description: "agentMon pet — full view · list · use <species> · size <16-60> · import <path> · ui · rename <name> · debug",
     getArgumentCompletions: (prefix: string) => {
       const p = prefix.trim();
       if (p.startsWith("use")) {
@@ -213,18 +208,33 @@ export default function agentmon(pi: ExtensionAPI, options: AgentMonOptions = {}
             description: `${s.name} (${speciesSource(s.id)})`,
           }));
       }
-      return ["list", "use", "ui", "rename", "import", "debug", "help"]
-        .filter((s) => s.startsWith(p))
-        .map((s) => ({ value: s, label: s }));
+      if (p.startsWith("size")) {
+        const partial = p.slice(4).trim();
+        return [16, 24, 32, 40, 48, 60]
+          .filter((n) => String(n).startsWith(partial))
+          .map((n) => ({ value: `size ${n}`, label: String(n), insertValue: `size ${n}` }));
+      }
+      return PET_SUBS.filter((s) => s.startsWith(p)).map((s) => ({ value: s, label: s }));
     },
     handler: async (args: string, ctx: ExtensionContext) => {
       loadPacks(ctx);
       const parts = args.trim().split(/\s+/).filter(Boolean);
-      const sub = parts[0] ?? "help";
+      const sub = parts[0] ?? "";
 
-      if (sub === "help" || sub === "") {
+      // /pet with no arguments = the full-screen view
+      if (!sub) {
+        ensurePet();
+        if (ctx.mode !== "tui" || !ctx.hasUI) {
+          ctx.ui?.notify?.("agentMon: /pet needs the interactive TUI", "warning");
+          return;
+        }
+        await openPetView(ctx, () => store.read(now()), { tickMs: options.tickMs });
+        return;
+      }
+
+      if (sub === "help") {
         ctx.ui?.notify?.(
-          "agentMon /pets — list: species · use <id>: wear a form · import <path> [names]: add a pack · ui: toggle the panel · rename <name>",
+          "agentMon /pet — no args: full view · list: species · use <id>: wear a form · size <16-60>: sprite size · import <path> [names]: add a pack · ui: toggle the panel · rename <name> · debug: event trace",
           "info",
         );
         return;
@@ -242,7 +252,7 @@ export default function agentmon(pi: ExtensionAPI, options: AgentMonOptions = {}
         const id = parts[1];
         if (speciesSource(id) === "unknown") {
           ctx.ui?.notify?.(
-            `agentMon: unknown species "${id}" — /pets list shows what's available`,
+            `agentMon: unknown species "${id}" — /pet list shows what's available`,
             "warning",
           );
           return;
@@ -266,6 +276,27 @@ export default function agentmon(pi: ExtensionAPI, options: AgentMonOptions = {}
         return;
       }
 
+      if (sub === "size") {
+        if (!parts[1]) {
+          ctx.ui?.notify?.(
+            `agentMon: pet size is ${petSizeOf(store.read(now()))} — /pet size <${16}-${60}> (pixels)`,
+            "info",
+          );
+          return;
+        }
+        const parsed = Number(parts[1]);
+        if (!Number.isFinite(parsed)) {
+          ctx.ui?.notify?.("agentMon: size must be a number 16-60", "warning");
+          return;
+        }
+        const n = clampPetSize(parsed);
+        const state = store.update((s) => ({ ...s, ui: { ...s.ui, petSize: n } }), now());
+        display?.setSize(n);
+        display?.refresh(state);
+        ctx.ui?.notify?.(`agentMon: pet size ${n} (16-60)`, "info");
+        return;
+      }
+
       if (sub === "import" && parts[1]) {
         const src = resolve(ctx.cwd ?? process.cwd(), parts[1]);
         const names = parts
@@ -283,7 +314,7 @@ export default function agentmon(pi: ExtensionAPI, options: AgentMonOptions = {}
         if (result.slug) registerPackRules(result.slug, result.rules ?? []);
         const ids = result.species?.map((s) => s.id).join(", ") ?? "";
         ctx.ui?.notify?.(
-          `agentMon: imported ${ids} — /pets use <id> to wear it${result.errors.length ? ` (other packs have problems: ${result.errors.length})` : ""}`,
+          `agentMon: imported ${ids} — /pet use <id> to wear it${result.errors.length ? ` (other packs have problems: ${result.errors.length})` : ""}`,
           "info",
         );
         return;
@@ -311,7 +342,7 @@ export default function agentmon(pi: ExtensionAPI, options: AgentMonOptions = {}
       if (sub === "debug") {
         ensurePet();
         if (ctx.mode !== "tui" || !ctx.hasUI) {
-          ctx.ui?.notify?.("agentMon: /pets debug needs the interactive TUI", "warning");
+          ctx.ui?.notify?.("agentMon: /pet debug needs the interactive TUI", "warning");
           return;
         }
         await openDebugView(ctx, {
@@ -331,7 +362,7 @@ export default function agentmon(pi: ExtensionAPI, options: AgentMonOptions = {}
         return;
       }
 
-      ctx.ui?.notify?.(`agentMon: unknown /pets subcommand "${sub}" — try /pets help`, "warning");
+      ctx.ui?.notify?.(`agentMon: unknown /pet subcommand "${sub}" — try /pet help`, "warning");
     },
   });
 }

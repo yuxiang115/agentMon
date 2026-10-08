@@ -85,7 +85,7 @@ describe("importPetPack", () => {
   });
 });
 
-describe("/pets import through the extension", () => {
+describe("/pet import through the extension", () => {
   class MockPi {
     handlers = new Map<string, (event: unknown, ctx: unknown) => unknown>();
     commands = new Map<string, { handler: (args: string, ctx: unknown) => Promise<void> }>();
@@ -117,11 +117,11 @@ describe("/pets import through the extension", () => {
     pi.handlers.get("session_start")!({}, ctx());
 
     const c = ctx();
-    await pi.commands.get("pets")!.handler(`import ${src}`, c);
+    await pi.commands.get("pet")!.handler(`import ${src}`, c);
     expect(c.ui.notify).toHaveBeenCalledWith(expect.stringContaining("sparky"), "info");
     expect(speciesSource("sparky")).toBe("pack");
 
-    await pi.commands.get("pets")!.handler("use sparky", ctx());
+    await pi.commands.get("pet")!.handler("use sparky", ctx());
     const saved = JSON.parse(readFileSync(join(stateDir, "state.json"), "utf8"));
     expect(saved.pets[saved.activePetId].species).toBe("sparky");
   });
@@ -134,7 +134,7 @@ describe("/pets import through the extension", () => {
     pi.handlers.get("session_start")!({}, ctx());
 
     const c = ctx();
-    await pi.commands.get("pets")!.handler(`import ${join(root, "ghost.json")}`, c);
+    await pi.commands.get("pet")!.handler(`import ${join(root, "ghost.json")}`, c);
     expect(c.ui.notify).toHaveBeenCalledWith(expect.stringContaining("import failed"), "warning");
     expect(existsSync(petsDir)).toBe(false);
   });

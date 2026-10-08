@@ -61,14 +61,14 @@ Rules:
 ## Using a pack
 
 ```
-/pets import <path>            # install from a pack.json / folder / tuipet sprites.json(.gz)
-/pets import <sprites.json> Agumon,Greymon   # tuipet extraction: pick creatures (auto-chains evolutions)
-/pets list                     # every species (built-ins + packs)
-/pets use my-pet               # your active pet becomes that species (keeps XP/traits/history)
-/pet                           # full view
-```
+/pet import <path>            # install from a pack.json / folder / tuipet sprites.json(.gz)
+/pet import <sprites.json> Agumon,Greymon   # tuipet extraction: pick creatures (auto-chains evolutions)
+/pet list                     # every species (built-ins + packs)
+/pet use my-pet               # your active pet becomes that species (keeps XP/traits/history)
+/pet size 32                  # sprite size 16-60 (pixels); the panel grows with it
+/pet                           # full view (also size-aware)
 
-`/pets import` accepts a `pack.json` file, a directory containing one, or a tuipet `sprites.json(.gz)` extraction (followed by comma-separated creature names). The pack is installed into the pets directory, validated immediately (broken packs are rolled back with the error shown), registered on the spot — no restart needed — and stays installed across sessions. Manual copying into the pets directory still works too.
+`/pet import` accepts a `pack.json` file, a directory containing one, or a tuipet `sprites.json(.gz)` extraction (followed by comma-separated creature names). The pack is installed into the pets directory, validated immediately (broken packs are rolled back with the error shown), registered on the spot — no restart needed — and stays installed across sessions. Manual copying into the pets directory still works too.
 
 ## Checking a pack without Pi
 
@@ -110,7 +110,7 @@ npm run pack:from-image -- --img sheet.png --frames 11 --name Agumon
 - **`--frames N`**: horizontal sprite sheet; an 11-frame strip maps with the tuipet pose table below
 - ink = auto-detected: transparent backgrounds mean "any opaque pixel"; opaque (e.g. white GPT) backgrounds mean "colour far enough from the background" — `--threshold` is that distance (default 60; lower it if art comes out blank)
 - images are area-averaged into 16×14 and grounded like the built-ins
-- `--out` defaults to the real pets directory, so after generating you only need `/reload` — or `/pets import <generated pack.json>` for instant registration
+- `--out` defaults to the real pets directory, so after generating you only need `/reload` — or `/pet import <generated pack.json>` for instant registration
 
 Default frame mapping (tuipet's 11-frame strip → agentMon poses):
 
@@ -123,4 +123,4 @@ Default frame mapping (tuipet's 11-frame strip → agentMon poses):
 | codeA | 7 | chew | sleep | 2 | sleep-A |
 | codeB | 8 | eat | | | |
 
-Then `/pets list`, `/pets use agumon` — or let the wired evolution gates grow into it naturally.
+Then `/pet list`, `/pet use agumon` — or let the wired evolution gates grow into it naturally.

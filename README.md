@@ -18,11 +18,11 @@ A reference-first terminal V-Pet that lives inside your coding agent: the agent'
 pi install git:github.com/yuxiang115/agentMon
 ```
 
-Then just work: reads/writes/tests drive the pet, the LCD widget rides below the editor, `/pet` opens the full view. State lives in `<pi agent dir>/agentmon/state.json` (atomic saves; survives reloads).
+Then just work: reads/writes/tests drive the pet, the pet panel floats top-right, and `/pet` does everything: no args opens the full view; `list` / `use <id>` manage species, `size <16-60>` scales the sprite, `import <path>` installs packs, `ui` toggles the panel, `rename <name>` renames, `debug` shows the event trace. State lives in `<pi agent dir>/agentmon/state.json` (atomic saves; survives reloads).
 
 ## Pet packs — bring your own sprites
 
-The repo ships original creatures only. You can load your own sprites locally (e.g. extracted from your own DVPet copy, at your own responsibility — never commit them): `/pets import <path>` installs a pack.json, a folder containing one, or a tuipet `sprites.json(.gz)` plus creature names (auto-converted, evolution-chained, validated, effective immediately). Then `/pets list` / `/pets use <id>`. Format reference and template: [`docs/pet-packs.md`](docs/pet-packs.md) + [`examples/pet-pack/`](examples/pet-pack/README.md); offline validation via `npm run packs`.
+The repo ships original creatures only. You can load your own sprites locally (e.g. extracted from your own DVPet copy, at your own responsibility — never commit them): `/pet import <path>` installs a pack.json, a folder containing one, or a tuipet `sprites.json(.gz)` plus creature names (auto-converted, evolution-chained, validated, effective immediately). Then `/pet list` / `/pet use <id>`. Format reference and template: [`docs/pet-packs.md`](docs/pet-packs.md) + [`examples/pet-pack/`](examples/pet-pack/README.md); offline validation via `npm run packs`.
 
 ## Rule #1 — do not reinvent
 

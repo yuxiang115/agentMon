@@ -55,12 +55,12 @@ npm run pack:from-image -- --img my-agumon/ --name 亚古兽 --id agumon --chain
 - 自动按文件夹里的名字装配：`idle×4、code×3…`，缺的用 idle 兜底
 - 自动缩放 16×14、二值化、贴地，和内置生物对齐
 - `--chain` 自动接上 byte → 亚古兽 的进化门（攒行为进化）
-- 生成结果直接写进宠物目录，Pi 里 `/reload` 或 `/pets import <生成的pack.json>` 后 `/pets use agumon`
+- 生成结果直接写进宠物目录，Pi 里 `/reload` 或 `/pet import <生成的pack.json>` 后 `/pet use agumon`
 
-预览效果：`npm run packs -- --dir ~/.pi/agent/agentmon/pets`，或直接 `/pets use` 后看右上角面板。
+预览效果：`npm run packs -- --dir ~/.pi/agent/agentmon/pets`，或直接 `/pet use` 后看右上角面板。
 
 ## 备注
 
 - 彩色角色没问题：取墨按"与背景色的距离"判断，橙色亚古兽在白底上识别正常；若整张图几乎没识别出墨水，把 `--threshold` 调小（如 40）再试。
-- 也支持：单张 PNG（自动派生 11 姿势的简版动画）、横向条图（`--frames 11`）、tuipet/DVPet 提取文件（`/pets import sprites.json 名字1,名字2`）。
+- 也支持：单张 PNG（自动派生 11 姿势的简版动画）、横向条图（`--frames 11`）、tuipet/DVPet 提取文件（`/pet import sprites.json 名字1,名字2`）。
 - **版权提醒**：如果角色是数码宝贝等商业形象，图和数据只留在你自己机器上，不要提交到任何公开仓库。

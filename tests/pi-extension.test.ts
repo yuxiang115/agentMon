@@ -168,12 +168,13 @@ describe("agentMon extension entry (C6: events really reach the pet)", () => {
     );
     expect(showOverlay).toHaveBeenCalledWith(
       expect.anything(),
-      expect.objectContaining({ nonCapturing: true, anchor: "top-right" }),
+      expect.objectContaining({ nonCapturing: true, anchor: "top-right", width: 36 }),
     );
     expect(bridge.render(80)).toEqual([]); // the bridge renders nothing
 
     const overlay = showOverlay.mock.calls[0]?.[0] as unknown as {
       render(w: number): string[];
+      setSize(n: number): void;
       dispose(): void;
     };
     const lines = overlay.render(36);
@@ -184,6 +185,34 @@ describe("agentMon extension entry (C6: events really reach the pet)", () => {
     overlay.dispose();
   });
 
+  it("/pet size resizes the sprite (16-60), persists, and re-anchors the overlay", async () => {
+    const pi = boot();
+    const ctx = mockCtx();
+    fire(pi, "session_start", {}, ctx);
+    const [, factory] = ctx.ui.setWidget.mock.calls[0] as [string, (tui: unknown, theme: unknown) => unknown];
+    const overlayHandle = { hide: vi.fn(), setHidden: vi.fn(), isHidden: () => false };
+    const showOverlay = vi.fn((..._args: unknown[]) => overlayHandle);
+    (factory as (tui: unknown, theme: unknown) => unknown)({ requestRender: () => {}, showOverlay }, {});
+
+    await pi.commands.get("pet")!.handler("size 48", ctx);
+    expect(showOverlay).toHaveBeenCalledTimes(2); // re-anchored at the new width
+    expect(showOverlay.mock.calls[1]?.[1]).toMatchObject({ width: 48 + 16 + 4 });
+    expect(ctx.ui.notify).toHaveBeenCalledWith(expect.stringContaining("48"), "info");
+    expect(JSON.parse(readStateFile(dir)).ui).toEqual({ petSize: 48 });
+
+    // the panel itself renders 48px of sprite = 24 terminal rows + borders
+    const overlay = showOverlay.mock.calls[0]?.[0] as unknown as { render(w: number): string[] };
+    const lines = overlay.render(100);
+    expect(lines).toHaveLength(24 + 2);
+    expect(lines[0]!.length).toBe(68); // 48 sprite + 16 roam + 4 chrome (no ANSI in the title)
+
+    // out-of-range clamps instead of erroring
+    await pi.commands.get("pet")!.handler("size 500", ctx);
+    expect(JSON.parse(readStateFile(dir)).ui).toEqual({ petSize: 60 });
+    await pi.commands.get("pet")!.handler("size abc", ctx);
+    expect(ctx.ui.notify).toHaveBeenCalledWith(expect.stringContaining("16-60"), "warning");
+  });
+
   it("the footer status follows events", () => {
     const pi = boot();
     const ctx = mockCtx();
@@ -192,7 +221,7 @@ describe("agentMon extension entry (C6: events really reach the pet)", () => {
     expect(ctx.ui.setStatus).toHaveBeenCalledWith("agentmon", expect.stringMatching(/Byte Lv\.1 · search/));
   });
 
-  it("/pets ui toggles the overlay, /pets rename renames the pet", async () => {
+  it("/pet ui toggles the overlay, /pet rename renames the pet", async () => {
     const pi = boot();
     const ctx = mockCtx();
     fire(pi, "session_start", {}, ctx);
@@ -206,9 +235,9 @@ describe("agentMon extension entry (C6: events really reach the pet)", () => {
       {},
     );
 
-    await pi.commands.get("pets")!.handler("ui", ctx);
+    await pi.commands.get("pet")!.handler("ui", ctx);
     expect(overlayHandle.setHidden).toHaveBeenCalledWith(true);
-    await pi.commands.get("pets")!.handler("rename Byte Jr", ctx);
+    await pi.commands.get("pet")!.handler("rename Byte Jr", ctx);
     expect(ctx.ui.notify).toHaveBeenCalledWith(expect.stringContaining("Byte Jr"), "info");
     const state = JSON.parse(readStateFile(dir));
     expect(state.pets[state.activePetId].name).toBe("Byte Jr");
@@ -237,7 +266,7 @@ describe("agentMon extension entry (C6: events really reach the pet)", () => {
       screen = factory({ requestRender: () => {} } as never, {} as never, {} as never, (() => {}) as never);
       return undefined;
     };
-    await pi.commands.get("pets")!.handler("debug", ctx);
+    await pi.commands.get("pet")!.handler("debug", ctx);
     expect(screen).toBeTruthy();
     const text = screen!.render(100).join("\n");
     expect(text).toContain("agent_start");

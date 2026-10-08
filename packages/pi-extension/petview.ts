@@ -8,9 +8,9 @@ import { activePet, levelFromXp, xpProgress, type GameState } from "../core";
 import { speciesFor } from "../../pets/registry";
 import { poseToColorGrid, renderColorScene } from "../renderer/src/colorframe";
 import { renderScreen } from "../renderer/src/framebuffer";
-import { COLS, CHAR_ROWS } from "../renderer/src/lcd";
+import { scaleRows } from "../renderer/src/scale";
 import { pickFrame, HOLD, SLEEP_BEAT, TICK_MS } from "../renderer/src/animation";
-import { truncateVisible } from "./widget";
+import { petAreaWidth, petCharRows, petSizeOf, truncateVisible } from "./widget";
 
 export interface PetViewOptions {
   tickMs?: number;
@@ -43,15 +43,22 @@ class PetScreen implements Component {
   }
 
   render(width: number): string[] {
-    const pet = activePet(this.readState());
+    const state = this.readState();
+    const pet = activePet(state);
     if (!pet) return ["agentMon: no pet yet — start a session first."];
     const species = speciesFor(pet.species);
     const poses = (species.roles[pet.activity] ?? species.roles.idle).map((p) => species.poses[p]);
     const hold = pet.activity === "sleep" ? SLEEP_BEAT : HOLD;
     const frame = pickFrame(poses, this.tickN, hold);
+    const size = Math.min(petSizeOf(state), Math.max(16, width - 4)); // fit the terminal
+    const scaled = scaleRows(frame, size);
     const lcd = species.palette
-      ? renderColorScene([{ grid: poseToColorGrid(frame, species.palette), xLeft: 8 }], COLS, CHAR_ROWS)
-      : renderScreen(frame, COLS, CHAR_ROWS, { on: species.ink ?? "#2b2e31" });
+      ? renderColorScene(
+          [{ grid: poseToColorGrid(scaled, species.palette, size), xLeft: Math.round((petAreaWidth(size) - size) / 2) }],
+          petAreaWidth(size),
+          petCharRows(size),
+        )
+      : renderScreen(scaled, petAreaWidth(size), petCharRows(size), { on: species.ink ?? "#2b2e31" });
     const c = pet.counters;
     const ageH = (pet.ageMs / 3_600_000).toFixed(1);
     const prog = xpProgress(c.xp);
@@ -69,7 +76,7 @@ class PetScreen implements Component {
       ` tests ${c.testsPassed} pass / ${c.testsFailed} fail · builds ${c.buildsPassed}/${c.buildsFailed}`,
       ` tasks ${c.tasksCompleted} · corrections ${c.userCorrections} · age ${ageH}h`,
       "",
-      " q / ESC — close · /pets list · /pets use <species>",
+      " q / ESC — close · /pet list · /pet use <species> · /pet size <16-60>",
     ].map((l) => truncateVisible(l, width));
   }
 

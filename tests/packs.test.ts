@@ -150,7 +150,7 @@ describe("loadPetPacks", () => {
   });
 });
 
-describe("extension integration — /pets and /pet use", () => {
+describe("extension integration — /pet list and /pet use", () => {
   // Minimal mock mirroring tests/pi-extension.test.ts
   class MockPi {
     handlers = new Map<string, (event: unknown, ctx: unknown) => unknown>();
@@ -180,33 +180,33 @@ describe("extension integration — /pets and /pet use", () => {
     return pi;
   }
 
-  it("a dropped-in pack appears in /pets list and /pets use swaps the species on disk", async () => {
+  it("a dropped-in pack appears in /pets list and /pet use swaps the species on disk", async () => {
     writePack("mypack", { species: [validSpeciesBody("sparky", "Sparky")] });
     const stateDir = join(root, "state");
     const pi = await boot(stateDir, packsDir);
     pi.handlers.get("session_start")!({}, ctx());
 
     const listCtx = ctx();
-    await pi.commands.get("pets")!.handler("list", listCtx);
+    await pi.commands.get("pet")!.handler("list", listCtx);
     expect(listCtx.ui.notify).toHaveBeenCalledWith(
       expect.stringContaining("sparky"),
       "info",
     );
 
     const useCtx = ctx();
-    await pi.commands.get("pets")!.handler("use sparky", useCtx);
+    await pi.commands.get("pet")!.handler("use sparky", useCtx);
     expect(useCtx.ui.notify).toHaveBeenCalledWith(expect.stringContaining("Sparky"), "info");
     const saved = JSON.parse(readFileSync(join(stateDir, "state.json"), "utf8"));
     expect(saved.pets[saved.activePetId].species).toBe("sparky");
     expect(saved.pets[saved.activePetId].activity).toBe("happy");
   });
 
-  it("/pets use of an unknown species warns instead of crashing", async () => {
+  it("/pet use of an unknown species warns instead of crashing", async () => {
     const stateDir = join(root, "state2");
     const pi = await boot(stateDir, join(root, "empty-packs"));
     pi.handlers.get("session_start")!({}, ctx());
     const useCtx = ctx();
-    await pi.commands.get("pets")!.handler("use nope", useCtx);
+    await pi.commands.get("pet")!.handler("use nope", useCtx);
     expect(useCtx.ui.notify).toHaveBeenCalledWith(expect.stringContaining("unknown species"), "warning");
   });
 });
