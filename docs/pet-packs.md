@@ -61,14 +61,14 @@ Rules:
 ## Using a pack
 
 ```
-/pet import <path>            # install from a pack.json / folder / tuipet sprites.json(.gz)
+/pet import <path> [name]     # zip (or zip\inner path) / image folder / PNG / pack.json / tuipet sprites.json(.gz)
 /pet import <sprites.json> Agumon,Greymon   # tuipet extraction: pick creatures (auto-chains evolutions)
 /pet list                     # every species (built-ins + packs)
 /pet use my-pet               # your active pet becomes that species (keeps XP/traits/history)
 /pet size 32                  # sprite size 16-60 (pixels); the panel grows with it
 /pet                           # full view (also size-aware)
 
-`/pet import` accepts a `pack.json` file, a directory containing one, or a tuipet `sprites.json(.gz)` extraction (followed by comma-separated creature names). The pack is installed into the pets directory, validated immediately (broken packs are rolled back with the error shown), registered on the spot — no restart needed — and stays installed across sessions. Manual copying into the pets directory still works too.
+`/pet import` accepts a `pack.json` file, a directory containing one, a tuipet `sprites.json(.gz)` extraction (followed by comma-separated creature names), a single PNG (11 poses auto-derived), a folder of pose-named images (the colour pipeline: full-colour poses + 32/64 hi-res layers), or a zip archive — including 7-Zip style inner paths like `mon.zip\source_crops`. Image folders may sit any depth inside the archive. The imported species is activated automatically; pass a trailing name to name it. The pack is installed into the pets directory, validated immediately (broken packs are rolled back with the error shown), registered on the spot — no restart needed — and stays installed across sessions. Manual copying into the pets directory still works too.
 
 ## Checking a pack without Pi
 

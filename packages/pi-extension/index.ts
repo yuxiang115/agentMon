@@ -30,7 +30,8 @@ import { installPetDisplay, petSizeOf, clampPetSize, type PetDisplayHandle } fro
 import { openPetView } from "./petview";
 import { openDebugView, type TraceEntry } from "./debug";
 import { mulberry32 } from "../renderer/src/animation";
-import { loadPetPacks, importPetPack } from "../../pets/packs";
+import { loadPetPacks } from "../../pets/packs";
+import { smartImportPet } from "../../pets/ingest";
 import {
   allSpecies,
   registerSpecies,
@@ -234,7 +235,7 @@ export default function agentmon(pi: ExtensionAPI, options: AgentMonOptions = {}
 
       if (sub === "help") {
         ctx.ui?.notify?.(
-          "agentMon /pet — no args: full view · list: species · use <id>: wear a form · size <16-60>: sprite size · import <path> [names]: add a pack · ui: toggle the panel · rename <name> · debug: event trace",
+          "agentMon /pet — no args: full view · list: species · use <id>: wear a form · size <16-60>: sprite size · import <zip|folder|pack.json|sprites.json> [name]: install & activate · ui: toggle the panel · rename <name> · debug: event trace",
           "info",
         );
         return;
@@ -299,22 +300,43 @@ export default function agentmon(pi: ExtensionAPI, options: AgentMonOptions = {}
 
       if (sub === "import" && parts[1]) {
         const src = resolve(ctx.cwd ?? process.cwd(), parts[1]);
-        const names = parts
-          .slice(2)
-          .join(" ")
-          .split(",")
-          .map((s) => s.trim())
-          .filter(Boolean);
-        const result = importPetPack(src, packsDir, { names, chain: true });
+        const rest = parts.slice(2).join(" ").split(",").map((s) => s.trim()).filter(Boolean);
+        const result = smartImportPet(src, packsDir, {
+          names: rest,
+          chain: true,
+          displayName: rest[0],
+        });
         if (!result.ok) {
           ctx.ui?.notify?.(`agentMon: import failed — ${result.errors.join("; ")}`, "warning");
           return;
         }
         if (result.species?.length) registerSpecies(...result.species);
         if (result.slug) registerPackRules(result.slug, result.rules ?? []);
-        const ids = result.species?.map((s) => s.id).join(", ") ?? "";
+        const ids = result.species?.map((s) => s.id) ?? [];
+        // auto-activate: the point of import is to wear the new mon
+        let activated = "";
+        const first = result.species?.[0];
+        if (first && speciesSource(first.id) !== "unknown") {
+          const state = store.update((s) => {
+            const pet = s.activePetId ? s.pets[s.activePetId] : undefined;
+            if (!pet) return s;
+            const next = {
+              ...pet,
+              species: first.id,
+              activity: "happy" as const,
+              activitySince: now(),
+              emotionUntil: now() + EMOTION_TTL_MS,
+            };
+            return { ...s, pets: { ...s.pets, [pet.id]: next } };
+          }, now());
+          activated = first.name;
+          display?.refresh(state);
+          ui?.setStatus?.("agentmon", footerStatus(state));
+        }
         ctx.ui?.notify?.(
-          `agentMon: imported ${ids} — /pet use <id> to wear it${result.errors.length ? ` (other packs have problems: ${result.errors.length})` : ""}`,
+          activated
+            ? `agentMon: imported ${ids.join(", ")} — ${activated} activated!`
+            : `agentMon: imported ${ids.join(", ")} — /pet use <id> to wear it`,
           "info",
         );
         return;

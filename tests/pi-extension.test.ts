@@ -3,11 +3,12 @@
 // extension entry and a mock Pi, that events actually reach the pet on disk.
 
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { mkdtempSync, readFileSync, rmSync } from "node:fs";
+import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import agentmon from "../packages/pi-extension";
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
+import { PNG } from "pngjs";
 
 function readStateFile(d: string): string {
   return readFileSync(join(d, "state.json"), "utf8");
@@ -273,6 +274,32 @@ describe("agentMon extension entry (C6: events really reach the pet)", () => {
     expect(text).toContain("tool_call:bash");
     expect(text).toContain("TEST_START");
     expect(text).toContain("Byte");
+  });
+
+  it("/pet import of an image folder installs, converts, and ACTIVATES the species", async () => {
+    const pi = boot();
+    const ctx = mockCtx();
+    fire(pi, "session_start", {}, ctx);
+
+    // a tiny pose folder (idle only) -> colour pipeline -> installed + active
+    const imgDir = join(dir, "imgs");
+    mkdirSync(imgDir);
+    const png = new PNG({ width: 32, height: 32 });
+    for (let y = 0; y < 32; y++) {
+      for (let x = 0; x < 32; x++) {
+        const i = (32 * y + x) << 2;
+        const inside = x >= 8 && x < 24 && y >= 8 && y < 24;
+        png.data[i] = png.data[i + 1] = png.data[i + 2] = inside ? 200 : 255;
+        png.data[i + 3] = 255;
+      }
+    }
+    writeFileSync(join(imgDir, "idle1.png"), PNG.sync.write(png));
+
+    await pi.commands.get("pet")!.handler(`import ${imgDir} Instant`, ctx);
+    expect(ctx.ui.notify).toHaveBeenCalledWith(expect.stringContaining("activated"), "info");
+    const state = JSON.parse(readStateFile(dir));
+    expect(state.pets[state.activePetId].species).toBe("instant");
+    expect(state.pets[state.activePetId].activity).toBe("happy");
   });
 
   it("state survives across extension restarts (reload)", () => {

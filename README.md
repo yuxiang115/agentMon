@@ -22,7 +22,7 @@ Then just work: reads/writes/tests drive the pet, the pet panel floats top-right
 
 ## Pet packs — bring your own sprites
 
-The repo ships original creatures only. You can load your own sprites locally (e.g. extracted from your own DVPet copy, at your own responsibility — never commit them): `/pet import <path>` installs a pack.json, a folder containing one, or a tuipet `sprites.json(.gz)` plus creature names (auto-converted, evolution-chained, validated, effective immediately). Then `/pet list` / `/pet use <id>`. Format reference and template: [`docs/pet-packs.md`](docs/pet-packs.md) + [`examples/pet-pack/`](examples/pet-pack/README.md); offline validation via `npm run packs`.
+The repo ships original creatures only. You can load your own sprites locally (e.g. extracted from your own DVPet copy, at your own responsibility — never commit them): `/pet import <path> [name]` takes a **zip** (even a 7-Zip style inner path like `mon.zip\source_crops`), a **folder of pose-named images** (`idle1.png ... sleep2.png` — converted to a full-colour pack with 32/64 hi-res layers), a **single PNG** (11 poses auto-derived), a `pack.json`, a folder containing one, or a tuipet `sprites.json(.gz)` plus creature names. Everything is auto-converted, validated, installed, and the new species is activated immediately. Then `/pet list` / `/pet use <id>`. Format reference and template: [`docs/pet-packs.md`](docs/pet-packs.md) + [`examples/pet-pack/`](examples/pet-pack/README.md); offline validation via `npm run packs`.
 
 ## Rule #1 — do not reinvent
 

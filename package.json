@@ -42,5 +42,9 @@
     "extensions": [
       "packages/pi-extension/index.ts"
     ]
+  },
+  "dependencies": {
+    "fflate": "^0.8.2",
+    "pngjs": "^7.0.0"
   }
 }
