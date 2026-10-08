@@ -3,6 +3,7 @@ import { addPet, createPet, freshState, setActivePet, type GameState, type PetSt
 import {
   EMOTION_TTL_MS,
   FOCUS_TIMEOUT_MS,
+  IDLE_SLEEP_MS,
   reduceEvent,
   tick,
 } from "../packages/core/reducer";
@@ -168,5 +169,29 @@ describe("tick — injected clock, batched catch-up", () => {
       const direct = tick(structuredClone(state), t2);
       expect(stepped).toEqual(direct);
     }
+  });
+});
+
+describe("idle doze — an unattended pet naps (V-Pet behaviour)", () => {
+  it("an idle pet falls asleep after IDLE_SLEEP_MS and stays asleep", () => {
+    let s = addPet(freshState(T0), createPet({ name: "P", now: T0 }));
+    s = { ...s, activePetId: Object.keys(s.pets)[0]! };
+    const id = s.activePetId!;
+    const before = tick(s, T0 + IDLE_SLEEP_MS - 1);
+    expect(before.pets[id]!.activity).toBe("idle"); // just under the doze
+    const after = tick(s, T0 + IDLE_SLEEP_MS);
+    expect(after.pets[id]!.activity).toBe("sleep");
+    expect(after.pets[id]!.activitySince).toBe(T0 + IDLE_SLEEP_MS); // stamped at the crossing
+    expect(tick(after, T0 + IDLE_SLEEP_MS + 60_000).pets[id]!.activity).toBe("sleep");
+  });
+
+  it("any work event wakes the sleeper (sleep is the lowest interrupt)", () => {
+    let s = addPet(freshState(T0), createPet({ name: "P", now: T0 }));
+    s = { ...s, activePetId: Object.keys(s.pets)[0]! };
+    const id = s.activePetId!;
+    const asleep = tick(s, T0 + IDLE_SLEEP_MS);
+    expect(asleep.pets[id]!.activity).toBe("sleep");
+    const woken = reduceEvent(asleep, { type: "READ", ts: T0 + IDLE_SLEEP_MS + 100 });
+    expect(woken.pets[id]!.activity).toBe("search");
   });
 });

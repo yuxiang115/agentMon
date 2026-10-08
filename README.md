@@ -18,7 +18,7 @@ A reference-first terminal V-Pet that lives inside your coding agent: the agent'
 pi install git:github.com/yuxiang115/agentMon
 ```
 
-Then just work: reads/writes/tests drive the pet, the pet panel floats top-right, and `/pet` does everything: no args opens the full view; `list` / `use <id>` manage species, `size <16-60>` scales the sprite, `import <path>` installs packs, `ui` toggles the panel, `rename <name>` renames, `debug` shows the event trace. State lives in `<pi agent dir>/agentmon/state.json` (atomic saves; survives reloads).
+The pet lives like a real V-Pet: it **dozes off after 5 idle minutes** (any work event wakes it), **levels up and evolves with a toast**, and evolution plays a **2.4 s digivolve transform** on the panel (charge-to-white -> silhouette strobe -> colour reveal; single-image imports carry hi-res layers too). Then just work: reads/writes/tests drive the pet, the pet panel floats top-right, and `/pet` does everything: no args opens the full view; `list` / `use <id>` manage species, `size <16-60>` scales the sprite, `import <path>` installs packs, `ui` toggles the panel, `rename <name>` renames, `debug` shows the event trace. State lives in `<pi agent dir>/agentmon/state.json` (atomic saves; survives reloads).
 
 ## Pet packs — bring your own sprites
 

@@ -10,7 +10,8 @@ import { poseToColorGrid, renderColorScene } from "../renderer/src/colorframe";
 import { renderScreen } from "../renderer/src/framebuffer";
 import { scaleRows } from "../renderer/src/scale";
 import { pickFrame, HOLD, SLEEP_BEAT, TICK_MS } from "../renderer/src/animation";
-import { petAreaWidth, petCharRows, petSizeOf, truncateVisible } from "./widget";
+import { evolvePlan } from "../renderer/src/evofx";
+import { evoPoseGrid, petAreaWidth, petCharRows, petSizeOf, truncateVisible } from "./widget";
 
 export interface PetViewOptions {
   tickMs?: number;
@@ -29,6 +30,11 @@ export async function openPetView(
 class PetScreen implements Component {
   private timer: ReturnType<typeof setInterval> | undefined;
   private tickN = 0;
+  private readonly tickMs: number;
+  /** Species drawn last render — a change while the view is open plays the
+   *  evolution fx from the old form. */
+  private lastSpecies: string | undefined;
+  private evolve?: { from: string; startTick: number };
 
   constructor(
     private tui: Pick<TUI, "requestRender">,
@@ -36,6 +42,7 @@ class PetScreen implements Component {
     private readState: () => GameState,
     tickMs: number,
   ) {
+    this.tickMs = tickMs;
     this.timer = setInterval(() => {
       this.tickN++;
       this.tui.requestRender();
@@ -47,18 +54,30 @@ class PetScreen implements Component {
     const pet = activePet(state);
     if (!pet) return ["agentMon: no pet yet — start a session first."];
     const species = speciesFor(pet.species);
-    const poseNames = species.roles[pet.activity] ?? species.roles.idle;
-    const hold = pet.activity === "sleep" ? SLEEP_BEAT : HOLD;
+    if (this.lastSpecies !== undefined && this.lastSpecies !== pet.species) {
+      this.evolve = { from: this.lastSpecies, startTick: this.tickN };
+    }
+    this.lastSpecies = pet.species;
     const size = Math.min(petSizeOf(state), Math.max(16, width - 4)); // fit the terminal
-    const frame = pickFrame(poseNames.map((p) => poseRowsFor(species, p, size)), this.tickN, hold);
-    const scaled = scaleRows(frame, size);
-    const lcd = species.palette
-      ? renderColorScene(
-          [{ grid: poseToColorGrid(scaled, species.palette, size), xLeft: Math.round((petAreaWidth(size) - size) / 2) }],
-          petAreaWidth(size),
-          petCharRows(size),
-        )
-      : renderScreen(scaled, petAreaWidth(size), petCharRows(size), { on: species.ink ?? "#2b2e31" });
+    const areaW = petAreaWidth(size);
+    const rows = petCharRows(size);
+    const centreX = Math.round((areaW - size) / 2);
+
+    // evolution fx: the transform replaces the normal LCD until it ends
+    let lcd: string[];
+    if (this.evolve) {
+      const elapsed = (this.tickN - this.evolve.startTick) * this.tickMs;
+      const plan = evolvePlan(elapsed);
+      const grid = evoPoseGrid(plan, speciesFor(this.evolve.from), species, pet.activity, this.tickN, size);
+      if (grid) {
+        lcd = renderColorScene([{ grid, xLeft: centreX }], areaW, rows);
+      } else {
+        this.evolve = undefined;
+        lcd = this.normalLcd(pet.activity, species, size, areaW, rows, centreX);
+      }
+    } else {
+      lcd = this.normalLcd(pet.activity, species, size, areaW, rows, centreX);
+    }
     const c = pet.counters;
     const ageH = (pet.ageMs / 3_600_000).toFixed(1);
     const prog = xpProgress(c.xp);
@@ -78,6 +97,27 @@ class PetScreen implements Component {
       "",
       " q / ESC — close · /pet list · /pet use <species> · /pet size <16-60>",
     ].map((l) => truncateVisible(l, width));
+  }
+
+  private normalLcd(
+    activity: string,
+    species: ReturnType<typeof speciesFor>,
+    size: number,
+    areaW: number,
+    rows: number,
+    centreX: number,
+  ): string[] {
+    const poseNames = species.roles[activity] ?? species.roles.idle;
+    const hold = activity === "sleep" ? SLEEP_BEAT : HOLD;
+    const frame = pickFrame(poseNames.map((p) => poseRowsFor(species, p, size)), this.tickN, hold);
+    const scaled = scaleRows(frame, size);
+    return species.palette
+      ? renderColorScene(
+          [{ grid: poseToColorGrid(scaled, species.palette, size), xLeft: centreX }],
+          areaW,
+          rows,
+        )
+      : renderScreen(scaled, areaW, rows, { on: species.ink ?? "#2b2e31" });
   }
 
   handleInput(data: string): void {

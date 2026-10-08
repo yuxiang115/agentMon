@@ -111,9 +111,27 @@ export default function agentmon(pi: ExtensionAPI, options: AgentMonOptions = {}
   /** The single mutation path: events -> reducer -> atomic save (audit §3.3). */
   function apply(events: CodingEvent[]): void {
     if (!events.length) return;
+    const before = store.read(now());
     const state = store.update((s) => events.reduce(reduceEvent, s), now());
     display?.refresh(state);
     ui?.setStatus?.("agentmon", footerStatus(state));
+
+    // growth notices: level-ups and evolutions happen deep in the reducer —
+    // surface them so they never pass silently (plan §13: EVOLUTION outranks
+    // everything; the toast + fx make the moment land)
+    const b = before.activePetId ? before.pets[before.activePetId] : undefined;
+    const a = state.activePetId ? state.pets[state.activePetId] : undefined;
+    if (b && a && b.id === a.id) {
+      const lvBefore = levelFromXp(b.counters.xp);
+      const lvAfter = levelFromXp(a.counters.xp);
+      if (a.species !== b.species) {
+        const form = speciesFor(a.species);
+        ui?.notify?.(`agentMon: ${a.name} evolved into ${form.name}! Lv.${lvAfter}`, "info");
+        display?.startEvolve(b.species);
+      } else if (lvAfter > lvBefore) {
+        ui?.notify?.(`agentMon: ${a.name} leveled up — Lv.${lvAfter}!`, "info");
+      }
+    }
   }
 
   function ensurePet(): GameState {

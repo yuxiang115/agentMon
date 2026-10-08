@@ -45,6 +45,10 @@ export const ACTIVITY_PRIORITY: Record<Activity, number> = {
 export const EMOTION_TTL_MS = 3_000;
 /** Steady focus activities fall back to idle after this long without events. */
 export const FOCUS_TIMEOUT_MS = 5 * 60_000;
+/** An idle/walking pet dozes off after this long with no events (a real V-Pet
+ *  naps when nobody's around; any work event wakes it — sleep has the lowest
+ *  interrupt priority, so waking needs no special case). */
+export const IDLE_SLEEP_MS = 5 * 60_000;
 
 /** Events that count as agent work and therefore open a task window. */
 const WORK_EVENTS: ReadonlySet<EventType> = new Set<EventType>([
@@ -286,14 +290,50 @@ function tickPet(pet0: PetState, now: number): PetState {
       pet.activity === "think" ||
       pet.activity === "test") &&
     now - pet.activitySince >= FOCUS_TIMEOUT_MS;
-  if (elapsed === 0 && !emotionExpired && !focusExpired && pet0 === pet) return pet0;
-  if (elapsed === 0 && !emotionExpired && !focusExpired) return pet;
+  const dozedOff =
+    !emotionExpired &&
+    !focusExpired &&
+    (pet.activity === "idle" || pet.activity === "walk") &&
+    now - pet.activitySince >= IDLE_SLEEP_MS;
+  if (elapsed === 0 && !emotionExpired && !focusExpired && !dozedOff && pet0 === pet) return pet0;
+  if (elapsed === 0 && !emotionExpired && !focusExpired && !dozedOff) return pet;
+  // Tick-driven transitions stamp the MOMENT the threshold was crossed and
+  // CASCADE until stable — a pure function of (state, now), so one big tick
+  // and many small ticks converge (audit §2.3) even though each fires at a
+  // different `now` (e.g. a long-idle pet passes focus-timeout AND the idle
+  // doze inside one catch-up tick).
+  let activity = pet.activity;
+  let activitySince = pet.activitySince;
+  let emotionUntil = pet.emotionUntil;
+  for (;;) {
+    if (emotionUntil !== null && now >= emotionUntil) {
+      activity = "idle";
+      activitySince = emotionUntil;
+      emotionUntil = null;
+      continue;
+    }
+    if (
+      (activity === "code" || activity === "search" || activity === "think" || activity === "test") &&
+      now - activitySince >= FOCUS_TIMEOUT_MS
+    ) {
+      activity = "idle";
+      activitySince = pet.activitySince + FOCUS_TIMEOUT_MS;
+      continue;
+    }
+    if ((activity === "idle" || activity === "walk") && now - activitySince >= IDLE_SLEEP_MS) {
+      activity = "sleep";
+      activitySince = activitySince + IDLE_SLEEP_MS;
+      continue;
+    }
+    break;
+  }
   return {
     ...pet,
     ageMs: pet.ageMs + elapsed,
     lastTickAt: Math.max(pet.lastTickAt, now),
-    activity: emotionExpired || focusExpired ? "idle" : pet.activity,
-    emotionUntil: emotionExpired ? null : pet.emotionUntil,
+    activity,
+    activitySince,
+    emotionUntil,
   };
 }
 

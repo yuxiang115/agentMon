@@ -85,7 +85,10 @@ describe("PetStore funnel (load -> catch-up -> mutate -> save)", () => {
     const hourLater = T0 + 3_600_000;
     const projected = store.read(hourLater);
     const pet = projected.pets[petId];
-    expect(pet.activity).toBe("idle"); // emotion expired during the gap
+    // the gap cascades: the happy emotion expires to idle, then the hour of
+    // idling passes IDLE_SLEEP_MS — the pet dozed off while away
+    expect(pet.activity).toBe("sleep");
+    expect(pet.emotionUntil).toBeNull();
     expect(pet.counters.testsPassed).toBe(1); // events preserved
     expect(pet.ageMs).toBeGreaterThanOrEqual(3_600_000 - EMOTION_TTL_MS);
   });

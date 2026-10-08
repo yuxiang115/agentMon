@@ -16,12 +16,10 @@ import { tmpdir } from "node:os";
 import { unzipSync } from "fflate";
 import { importPetPack, type ImportOptions, type ImportResult } from "./packs";
 import {
-  autoPoses,
   buildImagePack,
   collectActivityFiles,
-  paletteFromHexGrids,
   posesFromFolder,
-  pngToHexGrid,
+  pngToPosesLayers,
 } from "./imagepack";
 import { slugify } from "./convert";
 import { PNG } from "pngjs";
@@ -178,12 +176,12 @@ export function smartImportPet(srcPath: string, petsDir: string, opts: SmartImpo
       return installGeneratedPack(pack, petsDir);
     }
 
-    // single PNG (11 poses auto-derived)
+    // single PNG (11 poses auto-derived at every layer)
     if (isFile && /\.png$/i.test(dir)) {
       const png = PNG.sync.read(readFileSync(dir));
-      const { palette, rows } = paletteFromHexGrids([pngToHexGrid(png, {})]);
+      const { poses, palette, hiPoses } = pngToPosesLayers(png, {});
       const name = opts.displayName ?? prettifyFolderName(basename(dir));
-      const pack = buildImagePack(autoPoses(rows[0]!), { name, id: slugify(name), palette });
+      const pack = buildImagePack(poses, { name, id: slugify(name), palette, hiPoses });
       return installGeneratedPack(pack, petsDir);
     }
 

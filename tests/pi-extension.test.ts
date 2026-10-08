@@ -9,6 +9,9 @@ import { join } from "node:path";
 import agentmon from "../packages/pi-extension";
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 import { PNG } from "pngjs";
+import { PetOverlay } from "../packages/pi-extension/widget";
+import { addPet, createPet } from "../packages/core/pet";
+import { PetStore } from "../packages/storage/store";
 
 function readStateFile(d: string): string {
   return readFileSync(join(d, "state.json"), "utf8");
@@ -317,3 +320,111 @@ describe("agentMon extension entry (C6: events really reach the pet)", () => {
 });
 
 
+
+describe("growth notices + evolution fx", () => {
+  const CYCLE = (pi: MockPi, ctx: unknown = mockCtx()) => {
+    fire(pi, "tool_call", { toolCallId: "r", toolName: "read", input: {} });
+    fire(pi, "tool_execution_end", { toolCallId: "r", toolName: "read", isError: false });
+    fire(pi, "tool_call", { toolCallId: "t", toolName: "bash", input: { command: "npx vitest run" } });
+    fire(pi, "tool_execution_end", { toolCallId: "t", toolName: "bash", isError: false });
+    fire(pi, "agent_settled", {});
+  };
+
+  it("a level-up surfaces as a toast", async () => {
+    const pi = boot();
+    const ctx = mockCtx();
+    fire(pi, "session_start", {}, ctx);
+    for (let i = 0; i < 6; i++) CYCLE(pi, ctx); // ~20 xp/cycle -> past the 100 for Lv.2
+    await pi.commands.get("pet")!.handler("list", ctx);
+    expect(ctx.ui.notify).toHaveBeenCalledWith(
+      expect.stringMatching(/Byte leveled up — Lv\.2/),
+      "info",
+    );
+  });
+
+  it("evolving fires a toast and plays the overlay transform", async () => {
+    const dir2 = mkdtempSync(join(tmpdir(), "agentmon-evo-"));
+    try {
+      // a pack chaining byte -> testmon with gentle gates
+      const packsDir = join(dir2, "pets");
+      mkdirSync(join(packsDir, "tm-pack"), { recursive: true });
+      writeFileSync(
+        join(packsDir, "tm-pack", "pack.json"),
+        JSON.stringify({
+          name: "Testmon pack",
+          species: [
+            {
+              id: "testmon",
+              name: "Testmon",
+              stage: "branch",
+              palette: { a: "#00aa00" },
+              poses: { idle1: Array.from({ length: 16 }, (_, y) => (y === 8 ? "a".repeat(16) : ".".repeat(16))) },
+              roles: { idle: ["idle1"] },
+            },
+          ],
+          evolutions: [
+            { from: "byte", to: "testmon", gates: { minLevel: 2, axis: "research", minTraitShare: 0.2, minTasks: 3, maxCareMistakes: 3 } },
+          ],
+        }),
+        "utf8",
+      );
+      const pi = new MockPi();
+      agentmon(pi as unknown as ExtensionAPI, { stateDir: dir2, packsDir, now: () => clock, tickMs: FOREVER_MS });
+      const ctx = mockCtx();
+      fire(pi, "session_start", {}, ctx);
+      // install the bridge so startEvolve has an overlay to drive
+      const [, factory] = ctx.ui.setWidget.mock.calls[0] as [string, (tui: unknown, theme: unknown) => unknown];
+      const requestRender = vi.fn();
+      (factory as (tui: unknown, theme: unknown) => unknown)(
+        { requestRender, showOverlay: () => ({ hide: vi.fn(), setHidden: vi.fn(), isHidden: () => false }) },
+        {},
+      );
+      for (let i = 0; i < 6; i++) CYCLE(pi, ctx);
+      expect(ctx.ui.notify).toHaveBeenCalledWith(expect.stringMatching(/evolved into Testmon/), "info");
+      const state = JSON.parse(readFileSync(join(dir2, "state.json"), "utf8"));
+      expect(state.pets[state.activePetId].species).toBe("testmon");
+
+      // the overlay plays the fx: mid-charge it renders washed-out old-form pixels
+      const store = new PetStore(join(dir2, "state.json"));
+      const overlay = new PetOverlay(
+        { requestRender: () => {}, showOverlay: () => ({ hide: () => {}, setHidden: () => {}, isHidden: () => false }) } as never,
+        () => store.read(clock),
+        100,
+        () => 0.5,
+      );
+      overlay.startEvolve("byte");
+      const charged = (overlay as unknown as { tick(min: number, max: number): void }).tick;
+      void charged;
+      const lines = overlay.render(60);
+      const text = lines.join(String.fromCharCode(10));
+      expect(text).toContain("evolving");
+      expect(text).toContain(String.fromCharCode(27) + "[38;2;");
+      overlay.dispose();
+    } finally {
+      rmSync(dir2, { recursive: true, force: true });
+    }
+  });
+
+  it("a hidden panel stops rendering and ticking", () => {
+    const store = new PetStore(join(dir, "state.json"));
+    store.update((s) => addPet(s, createPet({ name: "Byte", now: clock })), clock);
+    const requestRender = vi.fn();
+    const overlay = new PetOverlay(
+      { requestRender, showOverlay: () => ({ hide: () => {}, setHidden: () => {}, isHidden: () => false }) } as never,
+      () => store.read(clock),
+      FOREVER_MS,
+      () => 0.5,
+    );
+    const tickOnce = () => (overlay as unknown as { tick(min: number, max: number): void }).tick(0, 16);
+    overlay.setHidden(true);
+    requestRender.mockClear();
+    tickOnce();
+    expect(requestRender).not.toHaveBeenCalled(); // paused, no idle burn
+    expect(overlay.render(60)).toEqual([]); // hidden renders nothing
+    overlay.setHidden(false);
+    tickOnce();
+    expect(requestRender).toHaveBeenCalled();
+    expect(overlay.render(60).length).toBeGreaterThan(0);
+    overlay.dispose();
+  });
+});

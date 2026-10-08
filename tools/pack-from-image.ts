@@ -24,6 +24,7 @@ import {
   paletteFromHexGrids,
   pngToBitmap,
   pngToHexGrid,
+  pngToPosesLayers,
   posesFromFrames,
   posesFromFolder,
   sheetToBitmaps,
@@ -113,19 +114,31 @@ try {
         console.log("single image: 11 poses auto-derived, mono (bounces/mirror)");
       }
     } else {
-      const grids =
-        framesArg && Number(framesArg) >= 2
-          ? sheetToHexGrids(png, Number(framesArg), { threshold })
-          : [pngToHexGrid(png, { threshold })];
-      const built = paletteFromHexGrids(grids);
-      palette = built.palette;
-      poses =
-        framesArg && Number(framesArg) >= 2
-          ? posesFromFrames(built.rows)
-          : autoPoses(built.rows[0]!);
-      console.log(
-        `${framesArg ? "sheet" : "single image"}: colour, ${Object.keys(palette).length} colours${framesArg ? "" : ", 11 poses auto-derived (bounces/mirror)"}`,
-      );
+      const framesArg = arg("--frames");
+      if (!framesArg && !mono) {
+        // single image: derive poses at EVERY layer from the one source
+        const layered = pngToPosesLayers(png, { threshold });
+        poses = layered.poses;
+        palette = layered.palette;
+        hiPoses = layered.hiPoses;
+        console.log(
+          `single image: colour, ${Object.keys(palette).length} colours, 11 poses auto-derived (bounces/mirror) + hi-res layers`,
+        );
+      } else {
+        const grids =
+          framesArg && Number(framesArg) >= 2
+            ? sheetToHexGrids(png, Number(framesArg), { threshold })
+            : [pngToHexGrid(png, { threshold })];
+        const built = paletteFromHexGrids(grids);
+        palette = built.palette;
+        poses =
+          framesArg && Number(framesArg) >= 2
+            ? posesFromFrames(built.rows)
+            : autoPoses(built.rows[0]!);
+        console.log(
+          `${framesArg ? "sheet" : "single image"}: colour, ${Object.keys(palette).length} colours${framesArg ? "" : ", 11 poses auto-derived (bounces/mirror)"}`,
+        );
+      }
     }
   }
 } catch (e) {

@@ -111,7 +111,7 @@ describe("smartImportPet", () => {
     }
   });
 
-  it("imports a single PNG (auto-derived poses)", () => {
+  it("imports a single PNG (auto-derived poses at every layer)", () => {
     const root = freshPetsDir();
     try {
       const img = join(root, "lone.png");
@@ -119,7 +119,11 @@ describe("smartImportPet", () => {
       const r = smartImportPet(img, petsDir, { displayName: "Lone" });
       expect(r.ok).toBe(true);
       expect(Object.keys(r.species?.[0]?.poses ?? {})).toHaveLength(11);
-      expect(r.species?.[0]?.hiPoses).toBeUndefined(); // no layers from one image
+      // single-image imports now carry the hi-res layers too
+      expect(Object.keys(r.species?.[0]?.hiPoses ?? {})).toEqual(["32", "64"]);
+      for (const layer of ["32", "64"]) {
+        expect(Object.keys(r.species?.[0]?.hiPoses?.[layer] ?? {})).toHaveLength(11);
+      }
     } finally {
       rmSync(root, { recursive: true, force: true });
     }

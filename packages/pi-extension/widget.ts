@@ -11,12 +11,13 @@
 import type { Component, TUI } from "@earendil-works/pi-tui";
 import type { ExtensionContext } from "@earendil-works/pi-coding-agent";
 import { activePet, levelFromXp, type GameState } from "../core";
-import { poseRowsFor, speciesFor } from "../../pets/registry";
-import { poseToColorGrid, renderColorScene } from "../renderer/src/colorframe";
+import { poseRowsFor, speciesFor, type SpeciesDef } from "../../pets/registry";
+import { poseToColorGrid, renderColorScene, type ColorGrid } from "../renderer/src/colorframe";
 import { renderScene } from "../renderer/src/framebuffer";
 import { roamBounds } from "../renderer/src/lcd";
 import { scaleRows } from "../renderer/src/scale";
 import { pickFrame, Roamer, HOLD, SLEEP_BEAT, TICK_MS, type Rng } from "../renderer/src/animation";
+import { evolvePlan, silhouetteGrid, whitenGrid, type EvoPlan } from "../renderer/src/evofx";
 import { stripAnsi } from "../renderer/src/halfblock";
 
 export interface DisplayOptions {
@@ -54,6 +55,56 @@ export function overlayWidthFor(size: number): number {
 /** The active pet size from persisted display settings. */
 export function petSizeOf(state: GameState): number {
   return clampPetSize(state.ui?.petSize ?? PET_SIZE_DEFAULT);
+}
+
+/**
+ * Pose rows -> a COLOUR grid whatever the species: palette pets map through
+ * their palette; mono pets become single-colour grids (their ink) so the
+ * evolution fx can wash/silhouette every species the same way.
+ */
+export function speciesPoseGrid(species: SpeciesDef, rows: string[], size: number): ColorGrid {
+  if (species.palette) return poseToColorGrid(rows, species.palette, size);
+  const inkColor = species.ink ?? "#2b2e31";
+  return rows.map((r) => [...r].map((c) => (c === "." ? null : inkColor)));
+}
+
+/** The species' most-used colour in a frame (burst-silhouette colour). */
+export function dominantColorOf(species: SpeciesDef, rows: string[]): string {
+  if (species.palette) {
+    const counts = new Map<string, number>();
+    for (const row of rows) for (const ch of row) if (ch !== ".") counts.set(ch, (counts.get(ch) ?? 0) + 1);
+    let best = "";
+    let bestN = -1;
+    for (const [ch, n] of counts) if (n > bestN) { bestN = n; best = ch; }
+    if (best) return species.palette[best] ?? "#ffffff";
+  }
+  // mono default matches the render ink — must differ from the white flash
+  return species.ink ?? "#2b2e31";
+}
+
+/**
+ * The evolution-fx frame for the current tick: which species' pose to draw
+ * (old/new per the plan), colour-processed (whiten/silhouette). Returns null
+ * when the plan is done.
+ */
+export function evoPoseGrid(
+  plan: EvoPlan,
+  fromSpecies: SpeciesDef,
+  toSpecies: SpeciesDef,
+  activity: string,
+  tickN: number,
+  size: number,
+): ColorGrid | null {
+  if (plan.stage === "done") return null;
+  const src = plan.form === "old" ? fromSpecies : toSpecies;
+  const poseNames = src.roles[activity] ?? src.roles.idle;
+  const hold = plan.flicker ? 2 : activity === "sleep" ? SLEEP_BEAT : HOLD;
+  const frame = pickFrame(poseNames.map((p) => poseRowsFor(src, p, size)), tickN, hold);
+  const grid = speciesPoseGrid(src, scaleRows(frame, size), size);
+  if (plan.silhouette) {
+    return silhouetteGrid(grid, plan.flashWhite ? "#ffffff" : dominantColorOf(src, frame));
+  }
+  return whitenGrid(grid, plan.whiteness);
 }
 
 // Minimal structural types for the overlay API (verified against pi-tui's
@@ -103,6 +154,11 @@ export class PetOverlay implements Component {
   private tickN = 0;
   private size: number;
   private readonly rng: Rng;
+  private readonly tickMs: number;
+  /** Set while the panel is toggled away — pauses ticking AND rendering. */
+  private hidden = false;
+  /** Evolution fx state (species the pet transformed FROM). */
+  private evolve?: { from: string; startTick: number };
 
   constructor(
     private tui: OverlayTuiLike,
@@ -113,6 +169,7 @@ export class PetOverlay implements Component {
   ) {
     this.size = clampPetSize(size);
     this.rng = rng;
+    this.tickMs = tickMs;
     this.roamer = this.makeRoamer();
     const [minX, maxX] = this.bounds();
     this.timer = setInterval(() => this.tick(minX, maxX), tickMs);
@@ -134,7 +191,21 @@ export class PetOverlay implements Component {
     this.tui.requestRender();
   }
 
+  /** Hidden panels stop ticking — no idle animation burn while invisible. */
+  setHidden(v: boolean): void {
+    this.hidden = v;
+    if (!v) this.tui.requestRender();
+  }
+
+  /** Start the evolution transform (from the species the pet used to be). */
+  startEvolve(fromId: string): void {
+    this.evolve = { from: fromId, startTick: this.tickN };
+    this.hidden = false;
+    this.tui.requestRender();
+  }
+
   private tick(minX: number, maxX: number): void {
+    if (this.hidden) return;
     this.tickN++;
     const pet = activePet(this.getState());
     if (pet && (pet.activity === "idle" || pet.activity === "walk")) {
@@ -145,21 +216,51 @@ export class PetOverlay implements Component {
 
   /** Bump from outside (a coding event arrived). */
   requestRender(): void {
-    this.tui.requestRender();
+    if (!this.hidden) this.tui.requestRender();
+  }
+
+  private panel(lcd: string[], title: string, width: number): string[] {
+    const w = Math.min(width, overlayWidthFor(this.size));
+    const inner = w - 2;
+    const fill = Math.max(1, inner - stripAnsi(title).length - 1);
+    return [
+      "┌─" + title + "─".repeat(fill) + "┐",
+      ...lcd.map((l) => "│ " + padVisible(l, inner - 2) + " │"),
+      "└" + "─".repeat(inner) + "┘",
+    ];
   }
 
   render(width: number): string[] {
+    if (this.hidden) return [];
     const pet = activePet(this.getState());
     if (!pet) return [];
     const species = speciesFor(pet.species);
+    const areaW = petAreaWidth(this.size);
+    const rows = petCharRows(this.size);
+    const centreX = Math.round((areaW - this.size) / 2);
+    const title = ` ${pet.name} Lv.${levelFromXp(pet.counters.xp)} · ${pet.activity} `;
+
+    // evolution fx overrides the normal frame until it completes
+    if (this.evolve) {
+      const elapsed = (this.tickN - this.evolve.startTick) * this.tickMs;
+      const plan = evolvePlan(elapsed);
+      const grid = evoPoseGrid(plan, speciesFor(this.evolve.from), species, pet.activity, this.tickN, this.size);
+      if (grid) {
+        return this.panel(
+          renderColorScene([{ grid, xLeft: centreX }], areaW, rows),
+          ` ${pet.name} Lv.${levelFromXp(pet.counters.xp)} · evolving `,
+          width,
+        );
+      }
+      this.evolve = undefined; // done — fall through to normal
+    }
+
     const poseNames = species.roles[pet.activity] ?? species.roles.idle;
     const hold = pet.activity === "sleep" ? SLEEP_BEAT : HOLD;
     const frame = pickFrame(poseNames.map((p) => poseRowsFor(species, p, this.size)), this.tickN, hold);
     const scaled = scaleRows(frame, this.size);
-    const areaW = petAreaWidth(this.size);
-    const rows = petCharRows(this.size);
     const roaming = pet.activity === "idle" || pet.activity === "walk";
-    const x = roaming ? this.roamer.x : Math.round((areaW - this.size) / 2);
+    const x = roaming ? this.roamer.x : centreX;
     const mirror = roaming ? this.roamer.mirror : false;
     const lcd = species.palette
       ? renderColorScene(
@@ -169,15 +270,7 @@ export class PetOverlay implements Component {
         )
       : renderScene([{ frame: scaled, xLeft: x, mirror }], areaW, rows, { on: species.ink ?? "#2b2e31" });
 
-    const w = Math.min(width, overlayWidthFor(this.size));
-    const inner = w - 2;
-    const title = ` ${pet.name} Lv.${levelFromXp(pet.counters.xp)} · ${pet.activity} `;
-    const fill = Math.max(1, inner - stripAnsi(title).length - 1);
-    return [
-      "┌─" + title + "─".repeat(fill) + "┐",
-      ...lcd.map((l) => "│ " + padVisible(l, inner - 2) + " │"),
-      "└" + "─".repeat(inner) + "┘",
-    ];
+    return this.panel(lcd, title, width);
   }
 
   invalidate(): void {
@@ -196,6 +289,8 @@ export interface PetDisplayHandle {
   toggle(): boolean;
   /** Live-resize the sprite (16..60), re-anchoring the overlay width. */
   setSize(n: number): void;
+  /** Play the evolution transform from the species the pet used to be. */
+  startEvolve(fromId: string): void;
   dispose(): void;
 }
 
@@ -241,6 +336,7 @@ export function installPetDisplay(
       if (!handle) return false;
       handle.setHidden(!handle.isHidden());
       hidden = handle.isHidden();
+      overlay?.setHidden(hidden);
       return !hidden;
     },
     setSize(n: number) {
@@ -251,6 +347,9 @@ export function installPetDisplay(
       handle?.hide();
       handle = undefined;
       show(overlayTui, n);
+    },
+    startEvolve(fromId: string) {
+      overlay?.startEvolve(fromId);
     },
     dispose() {
       overlay?.dispose();

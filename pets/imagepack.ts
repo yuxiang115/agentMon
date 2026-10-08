@@ -365,11 +365,12 @@ export function paletteFromHexGrids(
 }
 
 function shiftContent(bitmap: string[], dy: number): string[] {
-  const blank = ".".repeat(16);
+  const size = bitmap.length || CONTENT_ROWS;
+  const blank = ".".repeat(bitmap[0]?.length ?? CONTENT_ROWS);
   const moved: string[] = [];
-  for (let y = 0; y < CONTENT_ROWS; y++) {
+  for (let y = 0; y < size; y++) {
     const src = y - dy;
-    moved.push(src >= 0 && src < CONTENT_ROWS ? bitmap[src]! : blank);
+    moved.push(src >= 0 && src < size ? bitmap[src]! : blank);
   }
   return moved;
 }
@@ -381,7 +382,8 @@ function mirrorContent(bitmap: string[]): string[] {
 /**
  * Derive all 11 poses from ONE bitmap — subtle bounces, a mirror for search,
  * slumps for sleep/sad. Real sheets look better, but this makes any single
- * image alive in seconds.
+ * image alive in seconds. Works at ANY square resolution (16 base, 32/64
+ * hi-res layers).
  */
 export function autoPoses(base: string[]): Record<PoseName, string[]> {
   return {
@@ -397,6 +399,30 @@ export function autoPoses(base: string[]): Record<PoseName, string[]> {
     sad: shiftContent(base, 1),
     sleep: shiftContent(base, 2),
   };
+}
+
+/**
+ * One image -> full pose set at every layer: the 16x16 base defines the
+ * palette, then the SAME image is resampled at 32/64 and snapped onto it —
+ * single-image imports keep the hi-res detail folder imports have.
+ */
+export function pngToPosesLayers(
+  png: PNG,
+  opts: ColorExtractOptions = {},
+): {
+  poses: Record<PoseName, string[]>;
+  palette: Record<string, string>;
+  hiPoses: Record<string, Record<string, string[]>>;
+} {
+  const base = pngToHexGrid(png, opts);
+  const palette = buildPaletteFromHexGrids([base]);
+  const poses = autoPoses(applyPalette([base], palette)[0]!);
+  const hiPoses: Record<string, Record<string, string[]>> = {};
+  for (const layer of HI_LAYERS) {
+    const grid = pngToHexGrid(png, { ...opts, size: layer });
+    hiPoses[String(layer)] = autoPoses(applyPalette([grid], palette)[0]!);
+  }
+  return { poses, palette, hiPoses };
 }
 
 /** Split a horizontal sheet into per-frame bitmaps (each a 16-row array). */
