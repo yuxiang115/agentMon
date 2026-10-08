@@ -96,24 +96,31 @@ describe("colour extraction", () => {
     return png;
   }
 
-  it("keeps each pixel's own colour; background becomes transparent", () => {
+  it("aspect-fills the canvas; enclosed white (eye) stays a pixel, border bg is transparent", () => {
     // orange body with a white eye, on a white background
     const png = pngWith((x, y) => {
       if (x >= 4 && x < 12 && y >= 4 && y < 12) {
-        if (x === 6 && y === 6) return [255, 255, 255]; // eye == background
+        if (x === 6 && y === 6) return [255, 255, 255]; // eye == background colour
         return [240, 150, 40];
       }
       return null;
     });
     const grid = pngToHexGrid(png, {});
     expect(grid[8]![7]).toBe("#ffa020"); // quantized orange (240/150/40 -> 255/160/32)
-    expect(grid[6]![6]).toBeNull(); // eye is transparent
-    expect(grid[0]![0]).toBeNull(); // background transparent
+    expect(grid[0]![0]).toBeNull(); // canvas padding transparent
+    // GPT-converter fidelity rule: only BORDER-CONNECTED background is
+    // transparent; the enclosed eye stays a literal white pixel
+    expect(grid[4]![4]).toBe("#ffffff");
+    // bbox crop + aspect fill: the 8x8 content scales up to span 14 cells
+    const xs: number[] = [];
+    grid.forEach((row, y) => row.forEach((c, x) => { if (c) xs.push(x); }));
+    expect(Math.min(...xs)).toBe(1);
+    expect(Math.max(...xs)).toBe(14);
 
     const { palette, rows } = paletteFromHexGrids([grid]);
-    expect(Object.keys(palette)).toHaveLength(1);
+    expect(Object.keys(palette)).toHaveLength(2); // orange + enclosed white
     expect(rows[0]![8]![8]).not.toBe(".");
-    expect(rows[0]![6]![6]).toBe(".");
+    expect(rows[0]![4]![4]).not.toBe("."); // the eye renders, not a hole
   });
 
   it("folds rare colours into the nearest kept colour", () => {
@@ -124,7 +131,9 @@ describe("colour extraction", () => {
     });
     const { palette, rows } = paletteFromHexGrids([pngToHexGrid(png, {})], 1);
     expect(Object.keys(palette)).toHaveLength(1); // only orange kept
-    expect(rows[0]![8]![2]).not.toBe("."); // blue pixel folded to orange
+    // the blue pixel sits at the crop's left edge (grid col 1, row 7 after
+    // bbox re-centring) and folds to orange instead of dropping out
+    expect(rows[0]![7]![1]).not.toBe(".");
   });
 });
 
