@@ -13,10 +13,9 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 
 // Synthetic, ORIGINAL fixtures — simple distinct patterns, nothing extracted.
+// (Rows use only the legal charset: '0'/'1'.)
 function frame(fill: string): string[] {
-  return Array.from({ length: 16 }, (_, y) =>
-    (fill + (y % 10)).padEnd(16, "0").slice(0, 16),
-  );
+  return Array.from({ length: 16 }, (_, y) => (fill + (y % 2)).padEnd(16, "0").slice(0, 16));
 }
 
 const RECORD: TuipetSpriteRecord = {
