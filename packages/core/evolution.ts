@@ -39,6 +39,10 @@ export const EVOLUTION_RULES: readonly EvolutionRule[] = [
     gates: { minLevel: 2, axis: "research", minTraitShare: 0, minTasks: 3, maxCareMistakes: Number.MAX_SAFE_INTEGER },
   },
   {
+    from: "koromon", to: "agumon",
+    gates: { minLevel: 3, axis: "validation", minTraitShare: 0, minTasks: 8, minValidatedTasks: 2, maxCareMistakes: Number.MAX_SAFE_INTEGER },
+  },
+  {
     from: "byte",
     to: "scout",
     gates: { minLevel: 3, axis: "research", minTraitShare: 0.45, minTasks: 5, maxCareMistakes: 3 },

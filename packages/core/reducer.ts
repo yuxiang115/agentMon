@@ -113,10 +113,10 @@ export const COUNTER_KEY: Partial<Record<EventType, keyof Counters>> = {
 export function normalizePet(pet: PetState): PetState {
   return {
     ...pet,
-    // The Agumon stage was removed from the built-in digivice line — a
-    // partner that already reached it settles back into Koromon, keeping
-    // its XP, level and history.
-    species: pet.species === "agumon" ? "koromon" : pet.species,
+    // The user's imported "source crops" pack was promoted to the built-in
+    // Agumon — saves that wore the pack id settle into the shipped species
+    // (identical art, now with the evolution line attached).
+    species: pet.species === "source-crops" ? "agumon" : pet.species,
     task: pet.task ?? null,
     dirty: pet.dirty ?? false,
     careMistakes: pet.careMistakes ?? 0,

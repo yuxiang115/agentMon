@@ -1,11 +1,40 @@
 // The species registry — original creatures plus the requested fan companion.
 
+import { readFileSync } from "node:fs";
+import { fileURLToPath } from "node:url";
 import type { Bitmap } from "../packages/renderer/src/halfblock";
 import { BYTE } from "./sprites/byte";
 import { SCOUT } from "./sprites/scout";
 import { BUILDER } from "./sprites/builder";
 import { GUARDIAN } from "./sprites/guardian";
 import { BOTAMON, KOROMON } from "./sprites/digivice-line";
+
+/**
+ * The built-in Agumon: the user's imported image pack (source crops, 64-colour
+ * palette, hi-res layers to 64px) promoted to a shipped species. Served as
+ * data rather than hand-typed arrays — see pets/sprites/agumon-pack.json.
+ */
+function loadAgumon(): SpeciesDef | null {
+  try {
+    const raw: { species: Array<Partial<SpeciesDef>> } = JSON.parse(
+      readFileSync(fileURLToPath(new URL("./sprites/agumon-pack.json", import.meta.url)), "utf8"),
+    );
+    const s = raw.species[0];
+    if (!s?.poses || !s.roles) return null;
+    return {
+      ...s,
+      id: "agumon",
+      name: "Agumon",
+      lifeStage: "Rookie",
+      stage: "branch",
+      description: "Agumon — Rookie, raised through coding tasks.",
+    } as SpeciesDef;
+  } catch {
+    return null; // a broken install degrades to "unknown species", never crashes
+  }
+}
+
+const AGUMON = loadAgumon();
 
 export const POSE_NAMES = [
   "idleA",
@@ -69,6 +98,7 @@ export const SPECIES: Record<string, SpeciesDef> = {
   guardian: GUARDIAN,
   botamon: BOTAMON,
   koromon: KOROMON,
+  ...(AGUMON ? { agumon: AGUMON } : {}),
 };
 
 // --- runtime (pet-pack) species — see docs/pet-packs.md ---------------------

@@ -146,7 +146,7 @@ describe("registry sanity", () => {
     for (const rule of EVOLUTION_RULES) {
       const species = SPECIES[rule.to];
       expect(species, rule.to).toBeTruthy();
-      expect(species.poses.idleA.length).toBe(16);
+      expect(species!.poses[species!.roles.idle[0]!]!.length).toBe(16);
     }
   });
 });

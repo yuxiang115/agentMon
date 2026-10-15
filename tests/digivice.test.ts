@@ -4,6 +4,7 @@ import { activePet, addPet, createPet, evolutionTarget, freshState, reduceEvent 
 import type { EventType } from "../packages/events/types";
 import { PetOverlay } from "../packages/pi-extension/widget";
 import { evolutionLines, footerGoal } from "../packages/pi-extension/growth";
+import { speciesFor } from "../pets/registry";
 import { PiAdapter } from "../packages/adapters/pi/map";
 
 function game() {
@@ -14,7 +15,7 @@ function run(state: ReturnType<typeof game>, ...types: EventType[]) {
 }
 
 describe("coding Digivice journey", () => {
-  it("earns the Koromon evolution through real task events, then keeps leveling", () => {
+  it("earns both evolutions through real task events, without skipping a stage", () => {
     let s = game();
     for (let i = 0; i < 4; i++) s = run(s, "CODE_WRITE", "TEST_START", "TEST_PASS", "TASK_COMPLETE");
     expect(activePet(s)?.species).toBe("botamon"); // 92 XP
@@ -22,28 +23,34 @@ describe("coding Digivice journey", () => {
     expect(activePet(s)?.species).toBe("koromon"); // 115 XP
     for (let i = 0; i < 9; i++) s = run(s, "CODE_WRITE", "TEST_START", "TEST_PASS", "TASK_COMPLETE");
     const pet = activePet(s)!;
-    expect(pet.species).toBe("koromon"); // 322 XP — the built-in route's end
-    expect(pet.evolutions.map((e) => e.to)).toEqual(["koromon"]);
+    expect(pet.species).toBe("agumon"); // 322 XP
+    expect(pet.evolutions.map((e) => e.to)).toEqual(["koromon", "agumon"]);
     expect(pet.rewards).toHaveLength(20);
     expect(evolutionLines(pet)[0]).toContain("complete");
   });
 
-  it("Koromon is the route's end, and removed-species saves settle back into it", () => {
+  it("requires validation for Agumon but never permanently locks out a recovering partner", () => {
     const pet = activePet(game())!;
     pet.species = "koromon";
     pet.counters.xp = 1000;
     pet.counters.tasksCompleted = 20;
-    pet.validatedTasks = 20;
-    expect(evolutionTarget(pet)).toBeNull(); // nothing beyond Koromon
-    // a pre-removal save that reached Agumon migrates on first contact
+    pet.careMistakes = 20;
+    expect(evolutionTarget(pet)).toBeNull();
+    expect(evolutionLines(pet)).toContain("· Validated 0/2");
+    pet.validatedTasks = 2;
+    expect(evolutionTarget(pet)).toBe("agumon");
+  });
+
+  it("migrates the promoted import pack: source-crops settles into the built-in Agumon", () => {
     const base = game();
     const legacy = activePet(base)!;
-    legacy.species = "agumon";
+    legacy.species = "source-crops";
     legacy.counters.xp = 500;
     const migrated = reduceEvent(base, { type: "READ", ts: 1 });
     const back = activePet(migrated)!;
-    expect(back.species).toBe("koromon");
+    expect(back.species).toBe("agumon");
     expect(back.counters.xp).toBe(500); // XP, level and history survive
+    expect(speciesFor("agumon").poses[speciesFor("agumon").roles.idle[0]!]).toBeTruthy();
   });
 
   it("does not count or reward repeated settlement or late THINK_END", () => {

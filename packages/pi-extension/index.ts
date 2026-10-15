@@ -325,7 +325,7 @@ export default function agentmon(pi: ExtensionAPI, options: AgentMonOptions = {}
         }, now());
         display?.refresh(state);
         pushStatus(state);
-        ctx.ui?.notify?.(`agentMon: ${state.pets[state.activePetId!].name} is your active partner! Botamon → Koromon`, "info");
+        ctx.ui?.notify?.(`agentMon: ${state.pets[state.activePetId!].name} is your active partner! Botamon → Koromon → Agumon`, "info");
         return;
       }
 

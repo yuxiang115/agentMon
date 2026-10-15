@@ -6,7 +6,7 @@ A reference-first terminal V-Pet that lives inside your coding agent: the agent'
 
 > **Naming:** the implementation plan refers to the project as **CodePet**; this repo (`agentMon`) is its implementation home.
 
-**Status: Coding Digivice prototype — Botamon → Koromon, visible XP/rewards, evolution goals and partner collection.**
+**Status: Coding Digivice prototype — Botamon → Koromon → Agumon, visible XP/rewards, evolution goals and partner collection.**
 
 ## Coding Digivice / 代码 Agent 的数码暴龙机
 
@@ -15,8 +15,9 @@ A reference-first terminal V-Pet that lives inside your coding agent: the agent'
 | 阶段 | 进化条件（累计） |
 | --- | --- |
 | 黑球兽 → 滚球兽（Koromon） | Lv.2 / 100 XP，至少 3 个完成的任务 |
+| 滚球兽 → 亚古兽（Agumon） | Lv.3 / 300 XP，至少 8 个完成的任务，其中 2 个通过验证 |
 
-滚球兽是内置进化线的终点，仍可继续升级。想穿其他形态可用 `/pet import` 导入自己的精灵图（见 [docs/pet-packs.md](docs/pet-packs.md)）。
+亚古兽之后仍可继续升级。想穿其他形态可用 `/pet import` 导入自己的精灵图（见 [docs/pet-packs.md](docs/pet-packs.md)）。
 
 完成任务 +10 XP，验证过的任务额外 +5，首次通过再 +5；新改动测试通过 +3 / 构建通过 +2。同一代码重复测试不再给测试经验，任务结算重复事件不再计数，中断任务不给完成奖励。此处“任务”是 Pi 的一次请求结算；工具和退出状态用于判断验证，并非对代码正确性的独立审计。
 
@@ -76,7 +77,7 @@ Original engineering is reserved for the differentiated layer: the coding-event 
 
 ## Art provenance
 
-The original Byte/Scout/Builder/Guardian artwork remains available. The requested Botamon/Koromon companion uses newly hand-authored pixel arrays in `pets/sprites/digivice-line.ts`; no game sprites or extracted game data were copied. Digimon characters belong to their respective owners; the code's MIT license does not grant rights to those characters. The older original-creatures-only direction in the archived plan/audit is superseded for this requested fan companion.
+The original Byte/Scout/Builder/Guardian artwork remains available. Botamon/Koromon use newly hand-authored pixel arrays in `pets/sprites/digivice-line.ts`; the built-in Agumon is the user's imported image pack promoted to a shipped species (`pets/sprites/agumon-pack.json`, 64-colour palette with hi-res layers). No game sprites or extracted game data were copied. Digimon characters belong to their respective owners; the code's MIT license does not grant rights to those characters. The older original-creatures-only direction in the archived plan/audit is superseded for this requested fan companion.
 
 ## Repo layout (planned)
 
