@@ -7,7 +7,7 @@ import { activePet, addPet, createPet, freshState, levelFromXp, reduceEvent } fr
 import type { EventType } from "../packages/events/types";
 import { PetOverlay } from "../packages/pi-extension/widget";
 import { setColorMode } from "../packages/renderer/src/halfblock";
-import { BOTAMON, KOROMON } from "../pets/sprites/agumon-line";
+import { BOTAMON, KOROMON } from "../pets/sprites/digivice-line";
 import { PNG } from "pngjs";
 
 setColorMode("true");

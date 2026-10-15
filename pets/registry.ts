@@ -5,7 +5,7 @@ import { BYTE } from "./sprites/byte";
 import { SCOUT } from "./sprites/scout";
 import { BUILDER } from "./sprites/builder";
 import { GUARDIAN } from "./sprites/guardian";
-import { BOTAMON, KOROMON } from "./sprites/agumon-line";
+import { BOTAMON, KOROMON } from "./sprites/digivice-line";
 
 export const POSE_NAMES = [
   "idleA",

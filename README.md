@@ -76,7 +76,7 @@ Original engineering is reserved for the differentiated layer: the coding-event 
 
 ## Art provenance
 
-The original Byte/Scout/Builder/Guardian artwork remains available. The requested Botamon/Koromon companion uses newly hand-authored pixel arrays in `pets/sprites/agumon-line.ts`; no game sprites or extracted game data were copied. Digimon characters belong to their respective owners; the code's MIT license does not grant rights to those characters. The older original-creatures-only direction in the archived plan/audit is superseded for this requested fan companion.
+The original Byte/Scout/Builder/Guardian artwork remains available. The requested Botamon/Koromon companion uses newly hand-authored pixel arrays in `pets/sprites/digivice-line.ts`; no game sprites or extracted game data were copied. Digimon characters belong to their respective owners; the code's MIT license does not grant rights to those characters. The older original-creatures-only direction in the archived plan/audit is superseded for this requested fan companion.
 
 ## Repo layout (planned)
 
