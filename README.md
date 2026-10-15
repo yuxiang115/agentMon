@@ -1,5 +1,7 @@
 # agentMon
 
+[![CI](https://github.com/yuxiang115/agentMon/actions/workflows/ci.yml/badge.svg)](https://github.com/yuxiang115/agentMon/actions/workflows/ci.yml)
+
 A reference-first terminal V-Pet that lives inside your coding agent: the agent's real coding behavior (reads, edits, tests, task outcomes) raises, shapes, and evolves a pixel pet rendered as a classic 32×16 LCD using Unicode half-blocks.
 
 > **Naming:** the implementation plan refers to the project as **CodePet**; this repo (`agentMon`) is its implementation home.
