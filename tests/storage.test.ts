@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
-import { mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { existsSync, mkdtempSync, readFileSync, rmSync, utimesSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { addPet, createPet, freshState, reduceEvent, tick } from "../packages/core";
@@ -99,5 +99,45 @@ describe("PetStore funnel (load -> catch-up -> mutate -> save)", () => {
     const next = store.update((s) => addPet(s, createPet({ name: "Byte", now: T0 })), T0);
     expect(Object.keys(next.pets)).toHaveLength(1);
     expect(store.read(T0).pets).toEqual(next.pets);
+  });
+});
+
+describe("PetStore read cache (the animation/footer hot path)", () => {
+  it("repeated reads are consistent projections and never touch the disk", () => {
+    const store = PetStore.at(dir);
+    const saved = store.update((s) => addPet(s, createPet({ name: "Byte", now: T0 })), T0);
+    expect(store.read(T0 + 1)).toEqual(store.read(T0 + 1));
+    expect(store.read(T0).pets).toEqual(saved.pets); // same clock = exact state
+    expect(hasNoTempFiles(dir)).toBe(true); // reads stay read-only
+  });
+
+  it("a missing file keeps returning fresh states without creating one", () => {
+    const store = PetStore.at(dir);
+    expect(store.read(T0)).toEqual(tick(freshState(T0), T0));
+    expect(store.read(T0 + 5).version).toBe(1);
+    expect(existsSync(store.path)).toBe(false);
+  });
+
+  it("notices an external rewrite (another session) via the mtime probe", () => {
+    const store = PetStore.at(dir);
+    store.update((s) => addPet(s, createPet({ name: "Byte", now: T0 })), T0);
+    const external = addPet(freshState(T0), createPet({ name: "Extern", now: T0 }));
+    saveState(store.path, external);
+    // pin a clearly-later mtime: same-millisecond writes could collide
+    const stamp = new Date(T0 + 60_000);
+    utimesSync(store.path, stamp, stamp);
+    expect(Object.values(store.read(T0 + 60_000).pets)[0]!.name).toBe("Extern");
+  });
+
+  it("sees a corrupt file even after a healthy state was cached", () => {
+    const store = PetStore.at(dir);
+    store.update((s) => addPet(s, createPet({ name: "Byte", now: T0 })), T0);
+    expect(Object.values(store.read(T0 + 1).pets)[0]!.name).toBe("Byte"); // warm the cache
+    writeFileSync(store.path, "garbage", "utf8");
+    const stamp = new Date(T0 + 120_000);
+    utimesSync(store.path, stamp, stamp);
+    const next = store.update((s) => addPet(s, createPet({ name: "Fresh", now: T0 })), T0 + 120_000);
+    expect(Object.keys(next.pets)).toHaveLength(1); // corrupt backup + fresh fallback
+    expect(Object.values(store.read(T0 + 120_000).pets)[0]!.name).toBe("Fresh");
   });
 });
