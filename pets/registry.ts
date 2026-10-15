@@ -5,7 +5,7 @@ import { BYTE } from "./sprites/byte";
 import { SCOUT } from "./sprites/scout";
 import { BUILDER } from "./sprites/builder";
 import { GUARDIAN } from "./sprites/guardian";
-import { BOTAMON, KOROMON, AGUMON } from "./sprites/agumon-line";
+import { BOTAMON, KOROMON } from "./sprites/agumon-line";
 
 export const POSE_NAMES = [
   "idleA",
@@ -69,7 +69,6 @@ export const SPECIES: Record<string, SpeciesDef> = {
   guardian: GUARDIAN,
   botamon: BOTAMON,
   koromon: KOROMON,
-  agumon: AGUMON,
 };
 
 // --- runtime (pet-pack) species — see docs/pet-packs.md ---------------------

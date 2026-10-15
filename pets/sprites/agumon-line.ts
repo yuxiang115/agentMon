@@ -22,12 +22,6 @@ const koromon = bitmap([
   "..kppwkppwkppk..", "..kprpppppprpk..", "..kpppkkkkpppk..", "...kppkwwkppk...",
   "...kppprrpppk...", "....kkkkkkkk....", "................", "................",
 ]);
-const agumon = bitmap([
-  "................", "......kkkkkk....", ".....koooooook..", "....koowgwoook..",
-  "....koowkwoook..", "....koooooooook.", ".....kooowwwwk..", ".....koookkkk...",
-  ".kk..koooosk....", ".kokkooooookk...", "..koookoookowk..", "...kookooookk...",
-  "....kokookook...", "...kwwkkkwwwk...", "................", "................",
-]);
 
 function pixels(base: string[], changes: Array<[number, number, string]>): string[] {
   const grid = base.map((r) => [...r]);
@@ -41,7 +35,7 @@ function makeSpecies(id: string, name: string, lifeStage: string, base: string[]
   const codeA = pixels(base, [[0, 12, "b"], [1, 11, "b"], [2, 12, "b"], [1, 13, "b"]]);
   const codeB = pixels(base, [[0, 11, "b"], [1, 12, "b"], [2, 11, "b"], [1, 10, "b"]]);
   return {
-    id, name, lifeStage, stage: id === "agumon" ? "branch" : "baby", palette,
+    id, name, lifeStage, stage: "baby", palette,
     description: `${name} — ${lifeStage}, raised through coding tasks.`,
     poses: {
       idleA: base, idleB: blink,
@@ -66,4 +60,3 @@ function makeSpecies(id: string, name: string, lifeStage: string, base: string[]
 
 export const BOTAMON = makeSpecies("botamon", "Botamon", "Baby I", botamon, 7);
 export const KOROMON = makeSpecies("koromon", "Koromon", "Baby II", koromon, 7);
-export const AGUMON = makeSpecies("agumon", "Agumon", "Rookie", agumon, 3);

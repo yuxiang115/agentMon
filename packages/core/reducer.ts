@@ -113,6 +113,10 @@ export const COUNTER_KEY: Partial<Record<EventType, keyof Counters>> = {
 export function normalizePet(pet: PetState): PetState {
   return {
     ...pet,
+    // The Agumon stage was removed from the built-in digivice line — a
+    // partner that already reached it settles back into Koromon, keeping
+    // its XP, level and history.
+    species: pet.species === "agumon" ? "koromon" : pet.species,
     task: pet.task ?? null,
     dirty: pet.dirty ?? false,
     careMistakes: pet.careMistakes ?? 0,

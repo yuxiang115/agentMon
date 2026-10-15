@@ -32,15 +32,11 @@ export interface EvolutionRule {
   gates: EvolutionGates;
 }
 
-/** The three Stage-5 branches from the baby form (plan.md §16). */
+/** The built-in digivice line plus the three Stage-5 branches (plan.md §16). */
 export const EVOLUTION_RULES: readonly EvolutionRule[] = [
   {
     from: "botamon", to: "koromon",
     gates: { minLevel: 2, axis: "research", minTraitShare: 0, minTasks: 3, maxCareMistakes: Number.MAX_SAFE_INTEGER },
-  },
-  {
-    from: "koromon", to: "agumon",
-    gates: { minLevel: 3, axis: "validation", minTraitShare: 0, minTasks: 8, minValidatedTasks: 2, maxCareMistakes: Number.MAX_SAFE_INTEGER },
   },
   {
     from: "byte",

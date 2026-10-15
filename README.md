@@ -6,7 +6,7 @@ A reference-first terminal V-Pet that lives inside your coding agent: the agent'
 
 > **Naming:** the implementation plan refers to the project as **CodePet**; this repo (`agentMon`) is its implementation home.
 
-**Status: Coding Digivice prototype — Botamon → Koromon → Agumon, visible XP/rewards, evolution goals and partner collection.**
+**Status: Coding Digivice prototype — Botamon → Koromon, visible XP/rewards, evolution goals and partner collection.**
 
 ## Coding Digivice / 代码 Agent 的数码暴龙机
 
@@ -15,7 +15,8 @@ A reference-first terminal V-Pet that lives inside your coding agent: the agent'
 | 阶段 | 进化条件（累计） |
 | --- | --- |
 | 黑球兽 → 滚球兽（Koromon） | Lv.2 / 100 XP，至少 3 个完成的任务 |
-| 滚球兽 → 亚古兽（Agumon） | Lv.3 / 300 XP，至少 8 个完成的任务，其中 2 个通过验证 |
+
+滚球兽是内置进化线的终点，仍可继续升级。想穿其他形态可用 `/pet import` 导入自己的精灵图（见 [docs/pet-packs.md](docs/pet-packs.md)）。
 
 完成任务 +10 XP，验证过的任务额外 +5，首次通过再 +5；新改动测试通过 +3 / 构建通过 +2。同一代码重复测试不再给测试经验，任务结算重复事件不再计数，中断任务不给完成奖励。此处“任务”是 Pi 的一次请求结算；工具和退出状态用于判断验证，并非对代码正确性的独立审计。
 
@@ -29,7 +30,7 @@ A reference-first terminal V-Pet that lives inside your coding agent: the agent'
 /pet renderer quad   象限块渲染（默认，2×2 像素/格、宽度减半）；half 回到经典 ▀ 半块 LCD
 ```
 
-已有存档继续使用原来的宠物；用 `/pet hatch` 开始新路线。`/pet use <species>` 仍是手动形态覆盖，会跳过正常养成，请用 `hatch` 体验从幼年期开始的流程。亚古兽之后的阶段尚未加入，仍可继续升级。
+已有存档继续使用原来的宠物；用 `/pet hatch` 开始新路线。`/pet use <species>` 仍是手动形态覆盖，会跳过正常养成，请用 `hatch` 体验从幼年期开始的流程。
 
 本地加载当前代码：`pi -e ./packages/pi-extension/index.ts`。不改存档的完整演示：
 
@@ -38,7 +39,7 @@ npm run demo:device
 npm run demo:device -- --export out/device-preview.html
 ```
 
-导出的 HTML 有播放、暂停、拖动进度和进化阶段跳转，回放来自实际 reducer 与终端面板。精灵预览同时输出到 `out/agumon-line.png`。优化评估与后续功能建议见 [docs/digivice.md](docs/digivice.md)。
+导出的 HTML 有播放、暂停、拖动进度和进化阶段跳转，回放来自实际 reducer 与终端面板。精灵预览同时输出到 `out/digivice-line.png`。优化评估与后续功能建议见 [docs/digivice.md](docs/digivice.md)。
 
 - Full plan: [`docs/plan.md`](docs/plan.md)
 - Stage 0 deliverable: [`docs/reference-audit.md`](docs/reference-audit.md) — per-repo findings, reuse verdicts (COPY/PORT/ADAPT/ORIGINAL), and the design decisions they lock in
@@ -75,7 +76,7 @@ Original engineering is reserved for the differentiated layer: the coding-event 
 
 ## Art provenance
 
-The original Byte/Scout/Builder/Guardian artwork remains available. The requested Botamon/Koromon/Agumon companion uses newly hand-authored pixel arrays in `pets/sprites/agumon-line.ts`; no game sprites or extracted game data were copied. Digimon characters belong to their respective owners; the code's MIT license does not grant rights to those characters. The older original-creatures-only direction in the archived plan/audit is superseded for this requested fan companion.
+The original Byte/Scout/Builder/Guardian artwork remains available. The requested Botamon/Koromon companion uses newly hand-authored pixel arrays in `pets/sprites/agumon-line.ts`; no game sprites or extracted game data were copied. Digimon characters belong to their respective owners; the code's MIT license does not grant rights to those characters. The older original-creatures-only direction in the archived plan/audit is superseded for this requested fan companion.
 
 ## Repo layout (planned)
 

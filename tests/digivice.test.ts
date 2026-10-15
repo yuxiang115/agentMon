@@ -14,7 +14,7 @@ function run(state: ReturnType<typeof game>, ...types: EventType[]) {
 }
 
 describe("coding Digivice journey", () => {
-  it("earns both evolutions through real task events, without skipping a stage", () => {
+  it("earns the Koromon evolution through real task events, then keeps leveling", () => {
     let s = game();
     for (let i = 0; i < 4; i++) s = run(s, "CODE_WRITE", "TEST_START", "TEST_PASS", "TASK_COMPLETE");
     expect(activePet(s)?.species).toBe("botamon"); // 92 XP
@@ -22,22 +22,28 @@ describe("coding Digivice journey", () => {
     expect(activePet(s)?.species).toBe("koromon"); // 115 XP
     for (let i = 0; i < 9; i++) s = run(s, "CODE_WRITE", "TEST_START", "TEST_PASS", "TASK_COMPLETE");
     const pet = activePet(s)!;
-    expect(pet.species).toBe("agumon"); // 322 XP
-    expect(pet.evolutions.map((e) => e.to)).toEqual(["koromon", "agumon"]);
+    expect(pet.species).toBe("koromon"); // 322 XP — the built-in route's end
+    expect(pet.evolutions.map((e) => e.to)).toEqual(["koromon"]);
     expect(pet.rewards).toHaveLength(20);
     expect(evolutionLines(pet)[0]).toContain("complete");
   });
 
-  it("requires validation for Agumon but never permanently locks out a recovering partner", () => {
+  it("Koromon is the route's end, and removed-species saves settle back into it", () => {
     const pet = activePet(game())!;
     pet.species = "koromon";
     pet.counters.xp = 1000;
     pet.counters.tasksCompleted = 20;
-    pet.careMistakes = 20;
-    expect(evolutionTarget(pet)).toBeNull();
-    expect(evolutionLines(pet)).toContain("· Validated 0/2");
-    pet.validatedTasks = 2;
-    expect(evolutionTarget(pet)).toBe("agumon");
+    pet.validatedTasks = 20;
+    expect(evolutionTarget(pet)).toBeNull(); // nothing beyond Koromon
+    // a pre-removal save that reached Agumon migrates on first contact
+    const base = game();
+    const legacy = activePet(base)!;
+    legacy.species = "agumon";
+    legacy.counters.xp = 500;
+    const migrated = reduceEvent(base, { type: "READ", ts: 1 });
+    const back = activePet(migrated)!;
+    expect(back.species).toBe("koromon");
+    expect(back.counters.xp).toBe(500); // XP, level and history survive
   });
 
   it("does not count or reward repeated settlement or late THINK_END", () => {
