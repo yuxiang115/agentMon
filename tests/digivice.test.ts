@@ -3,7 +3,7 @@ import { visibleWidth } from "@earendil-works/pi-tui";
 import { activePet, addPet, createPet, evolutionTarget, freshState, reduceEvent } from "../packages/core";
 import type { EventType } from "../packages/events/types";
 import { PetOverlay } from "../packages/pi-extension/widget";
-import { evolutionLines } from "../packages/pi-extension/growth";
+import { evolutionLines, footerGoal } from "../packages/pi-extension/growth";
 import { PiAdapter } from "../packages/adapters/pi/map";
 
 function game() {
@@ -79,19 +79,21 @@ describe("coding Digivice journey", () => {
 });
 
 describe("device feedback", () => {
-  it("shows XP, task progress, rewards, level-up and all evolution phases", () => {
+  it("keeps the device compact — journey numbers live in the footer, not the panel", () => {
     vi.useFakeTimers();
     let state = game();
     const overlay = new PetOverlay({ requestRender() {}, showOverlay: vi.fn() }, () => state, 100, () => 0.5);
     try {
-      expect(overlay.render(36).join("\n")).toContain("Next: Koromon");
+      expect(footerGoal(activePet(state)!)).toBe("Koromon · Lv.1/2");
       state = run(state, "CODE_WRITE");
-      expect(overlay.render(36).join("\n")).toContain("validate");
+      const panel = overlay.render(36).join("\n");
+      expect(panel).not.toContain("Next:");
+      expect(panel).not.toContain("Status:");
+      expect(panel).not.toContain("Quest");
+      expect(panel).not.toContain("XP [");
       state = run(state, "TEST_PASS", "TASK_COMPLETE");
-      overlay.startReward("+23 XP · LEVEL UP 2!", 0);
+      overlay.startReward("+23 XP · LEVEL UP 2!");
       expect(overlay.render(36).join("\n")).toContain("LEVEL UP 2");
-      vi.advanceTimersByTime(1000);
-      expect(overlay.render(36).join("\n")).toContain("23/100");
       overlay.startEvolve("botamon");
       expect(overlay.render(36).join("\n")).toContain("CHARGE");
       vi.advanceTimersByTime(1200);

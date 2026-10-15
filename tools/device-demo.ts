@@ -46,7 +46,7 @@ function events(...types: EventType[]): void {
   if (after.species !== before.species) overlay.startEvolve(before.species);
   if (after.counters.xp > before.counters.xp) {
     const level = levelFromXp(after.counters.xp);
-    overlay.startReward(`+${after.counters.xp - before.counters.xp} XP${level > levelFromXp(before.counters.xp) ? ` · LEVEL UP ${level}!` : " · quest reward"}`, before.counters.xp);
+    overlay.startReward(`+${after.counters.xp - before.counters.xp} XP${level > levelFromXp(before.counters.xp) ? ` · LEVEL UP ${level}!` : " · quest reward"}`);
   }
 }
 const cycle = () => events("READ", "CODE_WRITE", "TEST_START", "TEST_PASS", "TASK_COMPLETE");

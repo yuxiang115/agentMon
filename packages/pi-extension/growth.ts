@@ -40,6 +40,18 @@ export function taskLine(pet: PetState): string {
   return "Quest: exploring / planning";
 }
 
+/**
+ * The footer's one-line journey summary: next evolution target plus its
+ * FIRST unmet gate ("Koromon · Lv.2", "Agumon · Tasks 5/8", "… · ready!").
+ */
+export function footerGoal(pet: PetState): string {
+  const lines = evolutionLines(pet);
+  if (!lines[0].startsWith("Next: ")) return lines[0]; // route complete
+  const target = lines[0].slice(6);
+  const unmet = lines.slice(1).find((line) => line.startsWith("·"));
+  return unmet ? `${target} · ${unmet.slice(2)}` : `${target} · ready!`;
+}
+
 export function journalLines(pet: PetState): string[] {
   const rewards = (pet.rewards ?? []).slice(-4).reverse();
   return rewards.length ? rewards.map((r) =>

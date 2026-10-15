@@ -11,8 +11,7 @@
 import type { Component, TUI } from "@earendil-works/pi-tui";
 import { truncateToWidth, visibleWidth } from "@earendil-works/pi-tui";
 import type { ExtensionContext } from "@earendil-works/pi-coding-agent";
-import { activePet, levelFromXp, type GameState, type PetState } from "../core";
-import { evolutionLines, taskLine, xpLine } from "./growth";
+import { activePet, type GameState, type PetState } from "../core";
 import { poseRowsFor, speciesFor, type SpeciesDef } from "../../pets/registry";
 import { poseToColorGrid, renderColorScene, type ColorGrid } from "../renderer/src/colorframe";
 import { renderScene } from "../renderer/src/framebuffer";
@@ -148,7 +147,7 @@ export class PetOverlay implements Component {
   private hidden = false;
   /** Evolution fx state (species the pet transformed FROM). */
   private evolve?: { from: string; startTick: number };
-  private reward?: { message: string; fromXp: number; startTick: number };
+  private reward?: { message: string; startTick: number };
   private petId: string | null;
 
   constructor(
@@ -195,8 +194,8 @@ export class PetOverlay implements Component {
     this.tui.requestRender();
   }
 
-  startReward(message: string, fromXp: number): void {
-    this.reward = { message, fromXp, startTick: this.tickN };
+  startReward(message: string): void {
+    this.reward = { message, startTick: this.tickN };
     this.requestRender();
   }
 
@@ -238,19 +237,21 @@ export class PetOverlay implements Component {
     ];
   }
 
+  /**
+   * The compact device: species line + LCD + (transiently) a reward toast
+   * or an evolution stage. Journey numbers (XP bar, task state, evolution
+   * goals) live in the TUI footer — the panel stays just the pet.
+   */
   private device(lcd: string[], pet: PetState, effect?: string): string[] {
     const species = speciesFor(pet.species);
     const elapsed = this.reward ? (this.tickN - this.reward.startTick) * this.tickMs : Infinity;
-    const ratio = Math.min(1, elapsed / 900);
-    const xp = this.reward ? this.reward.fromXp + (pet.counters.xp - this.reward.fromXp) * ratio : pet.counters.xp;
-    const feedback = effect ?? (this.reward && elapsed < 4000
-      ? `${this.tickN % 2 ? "✦" : "✧"} ${this.reward.message}` : `Status: ${pet.activity}`);
-    const goals = evolutionLines(pet);
-    const unmet = goals.slice(1).find((line) => line.startsWith("·"));
+    const toast = this.reward && elapsed < 4000
+      ? `${this.tickN % 2 ? "✦" : "✧"} ${this.reward.message}` : undefined;
+    const feedback = effect ?? toast;
     return [
       `${species.name} · ${species.lifeStage ?? species.stage}`,
-      ...lcd, xpLine(pet, xp), taskLine(pet), feedback,
-      goals[0], unmet ?? (goals[0].startsWith("Next:") ? "Ready at next task completion" : goals[1]),
+      ...lcd,
+      ...(feedback ? [feedback] : []),
     ];
   }
 
@@ -262,7 +263,7 @@ export class PetOverlay implements Component {
     const areaW = petAreaWidth(this.size);
     const rows = petCharRows(this.size);
     const centreX = Math.round((areaW - this.size) / 2);
-    const title = ` ${pet.name} Lv.${levelFromXp(pet.counters.xp)} · ${pet.activity} `;
+    const title = ` ${pet.name} `;
 
     // evolution fx overrides the normal frame until it completes
     if (this.evolve) {
@@ -272,7 +273,7 @@ export class PetOverlay implements Component {
       if (grid) {
         return this.panel(
           this.device(renderColorScene([{ grid, xLeft: centreX }], areaW, rows), pet, `EVOLVE: ${plan.stage.toUpperCase()}`),
-          ` ${pet.name} Lv.${levelFromXp(pet.counters.xp)} · evolving `,
+          ` ${pet.name} · evolving `,
           width,
         );
       }
@@ -315,7 +316,7 @@ export interface PetDisplayHandle {
   setSize(n: number): void;
   /** Play the evolution transform from the species the pet used to be. */
   startEvolve(fromId: string): void;
-  startReward(message: string, fromXp: number): void;
+  startReward(message: string): void;
   dispose(): void;
 }
 
@@ -376,8 +377,8 @@ export function installPetDisplay(
     startEvolve(fromId: string) {
       overlay?.startEvolve(fromId);
     },
-    startReward(message: string, fromXp: number) {
-      overlay?.startReward(message, fromXp);
+    startReward(message: string) {
+      overlay?.startReward(message);
     },
     dispose() {
       overlay?.dispose();

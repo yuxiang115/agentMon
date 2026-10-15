@@ -208,7 +208,7 @@ describe("agentMon extension entry (C6: events really reach the pet)", () => {
       dispose(): void;
     };
     const lines = overlay.render(36);
-    expect(lines).toHaveLength(16); // borders + LCD + six device status rows
+    expect(lines).toHaveLength(11); // borders + species + LCD rows (journey numbers live in the footer)
     expect(lines[0]).toMatch(/^┌/);
     expect(lines[0]).toContain("Botamon");
     expect(lines.at(-1)).toMatch(/┘$/);
@@ -233,7 +233,7 @@ describe("agentMon extension entry (C6: events really reach the pet)", () => {
     // the panel itself renders 48px of sprite = 24 terminal rows + borders
     const overlay = showOverlay.mock.calls[0]?.[0] as unknown as { render(w: number): string[] };
     const lines = overlay.render(100);
-    expect(lines).toHaveLength(24 + 8);
+    expect(lines).toHaveLength(24 + 3); // LCD rows + borders + species line
     expect(lines[0]!.length).toBe(68); // 48 sprite + 16 roam + 4 chrome (no ANSI in the title)
 
     // out-of-range clamps instead of erroring
@@ -243,12 +243,13 @@ describe("agentMon extension entry (C6: events really reach the pet)", () => {
     expect(ctx.ui.notify).toHaveBeenCalledWith(expect.stringContaining("16-60"), "warning");
   });
 
-  it("the footer status follows events", () => {
+  it("the footer status follows events and carries the journey numbers", () => {
     const pi = boot();
     const ctx = mockCtx();
     fire(pi, "session_start", {}, ctx);
     fire(pi, "tool_call", { toolCallId: "a", toolName: "read", input: {} }, ctx);
-    expect(ctx.ui.setStatus).toHaveBeenCalledWith("agentmon", expect.stringMatching(/Botamon Lv\.1 · search/));
+    expect(ctx.ui.setStatus).toHaveBeenCalledWith("agentmon", expect.stringMatching(/Botamon Lv\.1 · search · XP \[/));
+    expect(ctx.ui.setStatus).toHaveBeenCalledWith("agentmon", expect.stringContaining("Koromon"));
   });
 
   it("/pet ui toggles the overlay, /pet rename renames the pet", async () => {

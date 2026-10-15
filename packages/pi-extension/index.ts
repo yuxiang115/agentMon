@@ -4,8 +4,9 @@
 // Install into Pi:
 //   pi install git:github.com/yuxiang115/agentMon
 // The pet rides along: reads/writes/tests drive it, a non-capturing LCD panel
-// floats top-right (pi-pets' overlay trick), the footer carries a compact
-// status, and /pet does everything — no args opens the full view, subcommands
+// floats top-right (pi-pets' overlay trick) showing just the pet, the footer
+// at the bottom carries the journey numbers (XP, next evolution goal), and
+// /pet does everything — no args opens the full view, subcommands
 // manage species, size (16-60), the panel, and imports.
 //
 // The default state dir mirrors Pi's agent-dir resolution (PI_CODING_AGENT_DIR
@@ -29,7 +30,7 @@ import { PetStore } from "../storage/store";
 import { PiAdapter, type EventContext } from "../adapters/pi/map";
 import { installPetDisplay, petSizeOf, clampPetSize, type PetDisplayHandle } from "./widget";
 import { openPetView } from "./petview";
-import { evolutionLines, journalLines, xpLine } from "./growth";
+import { evolutionLines, footerGoal, journalLines, xpLine } from "./growth";
 import { petArguments } from "./args";
 import { openDebugView, type TraceEntry } from "./debug";
 import { mulberry32 } from "../renderer/src/animation";
@@ -70,6 +71,8 @@ export default function agentmon(pi: ExtensionAPI, options: AgentMonOptions = {}
   const adapter = new PiAdapter();
   const rng = mulberry32((now() & 0xffffffff) >>> 0);
   let display: PetDisplayHandle | undefined;
+  /** Keeps the footer's activity/goal honest between events (1 s diff poll). */
+  let statusTimer: ReturnType<typeof setInterval> | undefined;
   let ui: ExtensionContext["ui"] | null = null;
   let packsLoaded = false;
   /** Ring of recent raw-Pi-event -> mapped-event decisions, for /pets debug. */
@@ -112,7 +115,14 @@ export default function agentmon(pi: ExtensionAPI, options: AgentMonOptions = {}
   function footerStatus(state: GameState): string {
     const pet = state.activePetId ? state.pets[state.activePetId] : undefined;
     if (!pet) return "agentMon";
-    return `${pet.name} Lv.${levelFromXp(pet.counters.xp)} · ${pet.activity}`;
+    return `${pet.name} Lv.${levelFromXp(pet.counters.xp)} · ${pet.activity} · ${xpLine(pet)} · ${footerGoal(pet)}`;
+  }
+
+  /** Footer writes go through here so the freshness poll can diff. */
+  let lastStatus = "";
+  function pushStatus(state: GameState): void {
+    lastStatus = footerStatus(state);
+    ui?.setStatus?.("agentmon", lastStatus);
   }
 
   /** The single mutation path: events -> reducer -> atomic save (audit §3.3). */
@@ -121,7 +131,7 @@ export default function agentmon(pi: ExtensionAPI, options: AgentMonOptions = {}
     const before = store.read(now());
     const state = store.update((s) => events.reduce(reduceEvent, s), now());
     display?.refresh(state);
-    ui?.setStatus?.("agentmon", footerStatus(state));
+    pushStatus(state);
 
     // growth notices: level-ups and evolutions happen deep in the reducer —
     // surface them so they never pass silently (plan §13: EVOLUTION outranks
@@ -142,7 +152,6 @@ export default function agentmon(pi: ExtensionAPI, options: AgentMonOptions = {}
       const gained = a.counters.xp - b.counters.xp;
       if (gained > 0) display?.startReward(
         `+${gained} XP${lvAfter > lvBefore ? ` · LEVEL UP ${lvAfter}!` : a.rewards?.at(-1)?.firstPass ? " · first pass!" : " · well done!"}`,
-        b.counters.xp,
       );
     }
   }
@@ -176,6 +185,17 @@ export default function agentmon(pi: ExtensionAPI, options: AgentMonOptions = {}
         rng,
         size: petSizeOf(store.read(now())),
       });
+      // Time alone moves the pet (idle dozes off, emotions cool down) —
+      // poll once a second so the footer never shows a stale activity.
+      // Diff first: an unchanged line must not trigger a re-render.
+      statusTimer = setInterval(() => {
+        const next = footerStatus(store.read(now()));
+        if (next !== lastStatus) {
+          lastStatus = next;
+          ui?.setStatus?.("agentmon", next);
+        }
+      }, 1000);
+      statusTimer.unref?.();
     }
   });
 
@@ -223,6 +243,10 @@ export default function agentmon(pi: ExtensionAPI, options: AgentMonOptions = {}
     apply(evs);
     display?.dispose();
     display = undefined;
+    if (statusTimer) {
+      clearInterval(statusTimer);
+      statusTimer = undefined;
+    }
     ui?.setStatus?.("agentmon", undefined);
     ui = null;
   });
@@ -293,7 +317,7 @@ export default function agentmon(pi: ExtensionAPI, options: AgentMonOptions = {}
           return setActivePet(addPet(s, pet), pet.id);
         }, now());
         display?.refresh(state);
-        ui?.setStatus?.("agentmon", footerStatus(state));
+        pushStatus(state);
         ctx.ui?.notify?.(`agentMon: ${state.pets[state.activePetId!].name} is your active partner! Botamon → Koromon → Agumon`, "info");
         return;
       }
@@ -348,7 +372,7 @@ export default function agentmon(pi: ExtensionAPI, options: AgentMonOptions = {}
           return { ...s, pets: { ...s.pets, [pet.id]: next } };
         }, now());
         display?.refresh(state);
-        ui?.setStatus?.("agentmon", footerStatus(state));
+        pushStatus(state);
         ctx.ui?.notify?.(`agentMon: your pet is now a ${species.name}!`, "info");
         return;
       }
@@ -424,7 +448,7 @@ export default function agentmon(pi: ExtensionAPI, options: AgentMonOptions = {}
             display?.setSize(size);
           }
           display?.refresh(state);
-          ui?.setStatus?.("agentmon", footerStatus(state));
+          pushStatus(state);
         }
         ctx.ui?.notify?.(
           activated
@@ -449,7 +473,7 @@ export default function agentmon(pi: ExtensionAPI, options: AgentMonOptions = {}
           return { ...s, pets: { ...s.pets, [pet.id]: { ...pet, name } } };
         }, now());
         display?.refresh(state);
-        ui?.setStatus?.("agentmon", footerStatus(state));
+        pushStatus(state);
         ctx.ui?.notify?.(`agentMon: your pet is now called ${name}`, "info");
         return;
       }
