@@ -46,7 +46,11 @@ describe("faithful image imports", () => {
   });
 
   it("preserves tiny details in high-res palettes even when absent from the 16px base", () => {
-    const png = canvas(64, [240, 150, 40, 255]);
+    // Transparent border so the orange body is the subject: edge-flood
+    // background removal keeps it, and the 1px green speck survives only
+    // in the hi-res layers (nearest sampling skips it at 16px).
+    const png = canvas(64, [0, 0, 0, 0]);
+    rect(png, 1, 1, 62, 62, [240, 150, 40, 255]);
     rect(png, 30, 30, 1, 1, [0, 255, 0, 255]);
     const result = pngToPosesLayers(png);
     const green = Object.entries(result.palette).find(([, color]) => color === "#00ff00")?.[0];
