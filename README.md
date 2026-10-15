@@ -4,7 +4,38 @@ A reference-first terminal V-Pet that lives inside your coding agent: the agent'
 
 > **Naming:** the implementation plan refers to the project as **CodePet**; this repo (`agentMon`) is its implementation home.
 
-**Status: Stage 5 complete · next: Stage 6 (project pets — per-project pet assignment)**
+**Status: Coding Digivice prototype — Botamon → Koromon → Agumon, visible XP/rewards, evolution goals and partner collection.**
+
+## Coding Digivice / 代码 Agent 的数码暴龙机
+
+新存档默认领养 **黑球兽（Botamon）**，随 Pi 的工作活动切换思考、探索、编写、验证、开心、失落、睡眠动作。面板持续显示形态、XP 进度条、任务状态及下一个进化条件；获得经验时有奖励提示与进度条动画，升级有通知，进化播放蓄力 → 闪烁 → 显形。
+
+| 阶段 | 进化条件（累计） |
+| --- | --- |
+| 黑球兽 → 滚球兽（Koromon） | Lv.2 / 100 XP，至少 3 个完成的任务 |
+| 滚球兽 → 亚古兽（Agumon） | Lv.3 / 300 XP，至少 8 个完成的任务，其中 2 个通过验证 |
+
+完成任务 +10 XP，验证过的任务额外 +5，首次通过再 +5；新改动测试通过 +3 / 构建通过 +2。同一代码重复测试不再给测试经验，任务结算重复事件不再计数，中断任务不给完成奖励。此处“任务”是 Pi 的一次请求结算；工具和退出状态用于判断验证，并非对代码正确性的独立审计。
+
+```text
+/pet                 完整成长面板、奖励日志
+/pet journey         当前经验、全部进化条件、最近奖励
+/pet hatch [name]    领养新黑球兽，保留已有伙伴与经验
+/pet partners        列出伙伴及 ID
+/pet partner <id>    切换伙伴（任务结束后）
+/pet size 24         放大精灵
+```
+
+已有存档继续使用原来的宠物；用 `/pet hatch` 开始新路线。`/pet use <species>` 仍是手动形态覆盖，会跳过正常养成，请用 `hatch` 体验从幼年期开始的流程。亚古兽之后的阶段尚未加入，仍可继续升级。
+
+本地加载当前代码：`pi -e ./packages/pi-extension/index.ts`。不改存档的完整演示：
+
+```sh
+npm run demo:device
+npm run demo:device -- --export out/device-preview.html
+```
+
+导出的 HTML 有播放、暂停、拖动进度和进化阶段跳转，回放来自实际 reducer 与终端面板。精灵预览同时输出到 `out/agumon-line.png`。优化评估与后续功能建议见 [docs/digivice.md](docs/digivice.md)。
 
 - Full plan: [`docs/plan.md`](docs/plan.md)
 - Stage 0 deliverable: [`docs/reference-audit.md`](docs/reference-audit.md) — per-repo findings, reuse verdicts (COPY/PORT/ADAPT/ORIGINAL), and the design decisions they lock in
@@ -22,7 +53,7 @@ The pet lives like a real V-Pet: it **dozes off after 5 idle minutes** (any work
 
 ## Pet packs — bring your own sprites
 
-The repo ships original creatures only. You can load your own sprites locally (e.g. extracted from your own DVPet copy, at your own responsibility — never commit them): `/pet import <path> [name]` takes a **zip** (even a 7-Zip style inner path like `mon.zip\source_crops`), a **folder of pose-named images** (`idle1.png ... sleep2.png` — converted to a full-colour pack with 32/64 hi-res layers), a **single PNG** (11 poses auto-derived), a `pack.json`, a folder containing one, or a tuipet `sprites.json(.gz)` plus creature names. Everything is auto-converted, validated, installed, and the new species is activated immediately. Then `/pet list` / `/pet use <id>`. Format reference and template: [`docs/pet-packs.md`](docs/pet-packs.md) + [`examples/pet-pack/`](examples/pet-pack/README.md); offline validation via `npm run packs`.
+The repo includes original creatures and the requested hand-authored fan companion line. `/pet import <path> [name]` accepts a zip, pose-image folder, single PNG, `pack.json`, or tuipet sprite data. Imports are converted, validated, installed and activated. Use `/pet list` and `/pet use <id>` to inspect or change forms. Format reference: [docs/pet-packs.md](docs/pet-packs.md).
 
 ## Rule #1 — do not reinvent
 
@@ -39,9 +70,9 @@ Before writing substantial new code, audit and reuse/port/adapt the reference pr
 
 Original engineering is reserved for the differentiated layer: the coding-event taxonomy, outcome-based XP, behavioral traits, care mistakes, coding-driven evolution, and multi-pet semantics — see plan §21.
 
-## Licensing red line
+## Art provenance
 
-tuipet's code is MIT, but its Digimon sprites/game data belong to Bandai and are NOT covered by that license. agentMon ships only original creatures — never Digimon sprites, species names/designs, or extracted game data.
+The original Byte/Scout/Builder/Guardian artwork remains available. The requested Botamon/Koromon/Agumon companion uses newly hand-authored pixel arrays in `pets/sprites/agumon-line.ts`; no game sprites or extracted game data were copied. Digimon characters belong to their respective owners; the code's MIT license does not grant rights to those characters. The older original-creatures-only direction in the archived plan/audit is superseded for this requested fan companion.
 
 ## Repo layout (planned)
 

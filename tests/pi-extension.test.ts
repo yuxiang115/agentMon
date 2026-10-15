@@ -71,6 +71,32 @@ const fire = (pi: MockPi, event: string, payload: unknown, ctx = mockCtx()) =>
   pi.handlers.get(event)!(payload, ctx);
 
 describe("agentMon extension entry (C6: events really reach the pet)", () => {
+  it("hatches without losing the old partner, and switches back by ID", async () => {
+    const pi = boot();
+    const ctx = mockCtx();
+    fire(pi, "session_start", {}, ctx);
+    const old = JSON.parse(readStateFile(dir)).activePetId;
+    await pi.commands.get("pet")!.handler("hatch 小黑", ctx);
+    let state = JSON.parse(readStateFile(dir));
+    expect(Object.keys(state.pets)).toHaveLength(2);
+    expect(state.pets[state.activePetId]).toMatchObject({ name: "小黑", species: "botamon" });
+    await pi.commands.get("pet")!.handler(`partner ${old}`, ctx);
+    state = JSON.parse(readStateFile(dir));
+    expect(state.activePetId).toBe(old);
+    await pi.commands.get("pet")!.handler("journey", ctx);
+    expect(ctx.ui.notify).toHaveBeenCalledWith(expect.stringContaining("Next: Koromon"), "info");
+  });
+
+  it("does not reward aborted Pi runs", () => {
+    const pi = boot();
+    fire(pi, "session_start", {});
+    fire(pi, "agent_start", {});
+    fire(pi, "agent_end", { messages: [] });
+    fire(pi, "agent_settled", { aborted: true });
+    const state = JSON.parse(readStateFile(dir));
+    expect(state.pets[state.activePetId].counters).toMatchObject({ xp: 0, tasksCompleted: 0, tasksFailed: 1 });
+  });
+
   it("session_start creates the first pet, records the session, installs the widget", () => {
     const pi = boot();
     fire(pi, "session_start", { reason: "startup" });
@@ -142,7 +168,7 @@ describe("agentMon extension entry (C6: events really reach the pet)", () => {
     expect(screen).toBeTruthy();
     const lines = screen!.render(80);
     expect(lines.length).toBeGreaterThan(8);
-    expect(lines.join("\n")).toContain("Byte");
+    expect(lines.join("\n")).toContain("Botamon");
     screen!.handleInput("q");
     expect(closed).toBe(true);
     screen!.dispose(); // idempotent after done()
@@ -182,10 +208,10 @@ describe("agentMon extension entry (C6: events really reach the pet)", () => {
       dispose(): void;
     };
     const lines = overlay.render(36);
-    expect(lines).toHaveLength(10); // border + 8 LCD rows + border
+    expect(lines).toHaveLength(16); // borders + LCD + six device status rows
     expect(lines[0]).toMatch(/^┌/);
-    expect(lines[0]).toContain("Byte");
-    expect(lines[9]).toMatch(/┘$/);
+    expect(lines[0]).toContain("Botamon");
+    expect(lines.at(-1)).toMatch(/┘$/);
     overlay.dispose();
   });
 
@@ -207,7 +233,7 @@ describe("agentMon extension entry (C6: events really reach the pet)", () => {
     // the panel itself renders 48px of sprite = 24 terminal rows + borders
     const overlay = showOverlay.mock.calls[0]?.[0] as unknown as { render(w: number): string[] };
     const lines = overlay.render(100);
-    expect(lines).toHaveLength(24 + 2);
+    expect(lines).toHaveLength(24 + 8);
     expect(lines[0]!.length).toBe(68); // 48 sprite + 16 roam + 4 chrome (no ANSI in the title)
 
     // out-of-range clamps instead of erroring
@@ -222,7 +248,7 @@ describe("agentMon extension entry (C6: events really reach the pet)", () => {
     const ctx = mockCtx();
     fire(pi, "session_start", {}, ctx);
     fire(pi, "tool_call", { toolCallId: "a", toolName: "read", input: {} }, ctx);
-    expect(ctx.ui.setStatus).toHaveBeenCalledWith("agentmon", expect.stringMatching(/Byte Lv\.1 · search/));
+    expect(ctx.ui.setStatus).toHaveBeenCalledWith("agentmon", expect.stringMatching(/Botamon Lv\.1 · search/));
   });
 
   it("/pet ui toggles the overlay, /pet rename renames the pet", async () => {
@@ -276,7 +302,7 @@ describe("agentMon extension entry (C6: events really reach the pet)", () => {
     expect(text).toContain("agent_start");
     expect(text).toContain("tool_call:bash");
     expect(text).toContain("TEST_START");
-    expect(text).toContain("Byte");
+    expect(text).toContain("Botamon");
   });
 
   it("/pet import of an image folder installs, converts, and ACTIVATES the species", async () => {
@@ -303,6 +329,7 @@ describe("agentMon extension entry (C6: events really reach the pet)", () => {
     const state = JSON.parse(readStateFile(dir));
     expect(state.pets[state.activePetId].species).toBe("instant");
     expect(state.pets[state.activePetId].activity).toBe("happy");
+    expect(state.ui.petSize).toBe(40);
   });
 
   it("state survives across extension restarts (reload)", () => {
@@ -337,7 +364,7 @@ describe("growth notices + evolution fx", () => {
     for (let i = 0; i < 6; i++) CYCLE(pi, ctx); // ~20 xp/cycle -> past the 100 for Lv.2
     await pi.commands.get("pet")!.handler("list", ctx);
     expect(ctx.ui.notify).toHaveBeenCalledWith(
-      expect.stringMatching(/Byte leveled up — Lv\.2/),
+      expect.stringMatching(/Botamon leveled up — Lv\.2/),
       "info",
     );
   });
@@ -372,6 +399,7 @@ describe("growth notices + evolution fx", () => {
       agentmon(pi as unknown as ExtensionAPI, { stateDir: dir2, packsDir, now: () => clock, tickMs: FOREVER_MS });
       const ctx = mockCtx();
       fire(pi, "session_start", {}, ctx);
+      await pi.commands.get("pet")!.handler("use byte", ctx);
       // install the bridge so startEvolve has an overlay to drive
       const [, factory] = ctx.ui.setWidget.mock.calls[0] as [string, (tui: unknown, theme: unknown) => unknown];
       const requestRender = vi.fn();

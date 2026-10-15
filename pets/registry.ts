@@ -1,11 +1,11 @@
-// The species registry — every creature agentMon knows. ORIGINAL art only
-// (docs/reference-audit.md §2.2 red line: no Bandai/Digimon-derived designs).
+// The species registry — original creatures plus the requested fan companion.
 
 import type { Bitmap } from "../packages/renderer/src/halfblock";
 import { BYTE } from "./sprites/byte";
 import { SCOUT } from "./sprites/scout";
 import { BUILDER } from "./sprites/builder";
 import { GUARDIAN } from "./sprites/guardian";
+import { BOTAMON, KOROMON, AGUMON } from "./sprites/agumon-line";
 
 export const POSE_NAMES = [
   "idleA",
@@ -28,6 +28,8 @@ export interface SpeciesDef {
   name: string;
   /** "baby" — can evolve; "branch" — a Stage-5 evolution target. */
   stage: "baby" | "branch";
+  /** Human-readable lifecycle stage, independent of the legacy pack stage. */
+  lifeStage?: string;
   description?: string;
   /**
    * Pose bitmaps keyed by pose name. Built-ins use the canonical 11; pet
@@ -65,6 +67,9 @@ export const SPECIES: Record<string, SpeciesDef> = {
   scout: SCOUT,
   builder: BUILDER,
   guardian: GUARDIAN,
+  botamon: BOTAMON,
+  koromon: KOROMON,
+  agumon: AGUMON,
 };
 
 // --- runtime (pet-pack) species — see docs/pet-packs.md ---------------------

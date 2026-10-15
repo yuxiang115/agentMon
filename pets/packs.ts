@@ -229,11 +229,11 @@ function parseGates(raw: unknown, context: string, errors: string[]): EvolutionG
   const minLevel = int(g.minLevel);
   const minTasks = int(g.minTasks);
   const maxCareMistakes = int(g.maxCareMistakes);
-  const shareOk = typeof g.minTraitShare === "number" && g.minTraitShare > 0 && g.minTraitShare <= 1;
+  const shareOk = typeof g.minTraitShare === "number" && g.minTraitShare >= 0 && g.minTraitShare <= 1;
   const axisOk = typeof g.axis === "string" && ["research", "implementation", "validation"].includes(g.axis);
   if (minLevel === null || minLevel < 1 || minTasks === null || maxCareMistakes === null || !shareOk || !axisOk) {
     errors.push(
-      `${context}: gates need integer minLevel>=1, minTasks, maxCareMistakes, minTraitShare in (0,1], axis in research|implementation|validation`,
+      `${context}: gates need integer minLevel>=1, minTasks, maxCareMistakes, minTraitShare in [0,1], axis in research|implementation|validation`,
     );
     return null;
   }
@@ -250,6 +250,14 @@ function parseGates(raw: unknown, context: string, errors: string[]): EvolutionG
       return null;
     }
     gates.minValidatedRatio = g.minValidatedRatio;
+  }
+  if (g.minValidatedTasks !== undefined) {
+    const count = int(g.minValidatedTasks);
+    if (count === null) {
+      errors.push(`${context}: gates.minValidatedTasks must be a nonnegative integer`);
+      return null;
+    }
+    gates.minValidatedTasks = count;
   }
   return gates;
 }

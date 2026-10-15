@@ -87,7 +87,7 @@ describe("evolutionTarget — plan.md §16 multi-gate evaluation", () => {
 
   it("branch species never evolve again (Stage 5 scope)", () => {
     expect(evolutionTarget({ ...researchPet, species: "scout" })).toBeNull();
-    expect(EVOLUTION_RULES.every((r) => r.from === "byte")).toBe(true);
+    expect(EVOLUTION_RULES.some((r) => r.from === "scout")).toBe(false);
   });
 
   it("a tie between axes resolves in rule order (scout first)", () => {

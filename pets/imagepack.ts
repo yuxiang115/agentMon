@@ -13,6 +13,8 @@
 //  - Frames keep all 16 rows (no 14-row squeeze); the renderer grounds them.
 
 import { PNG } from "pngjs";
+import { applyPalette, buildPaletteFromHexGrids, pngToHexGrid, prepareImage, sampleImage, sharedViewport, type HexGrid, type ColorExtractOptions } from "./image-color";
+export { applyPalette, buildPaletteFromHexGrids, paletteFromHexGrids, pngToHexGrid, type HexGrid, type ColorExtractOptions } from "./image-color";
 import { readFileSync, readdirSync } from "node:fs";
 import { POSE_NAMES, type PoseName } from "./registry";
 import { DEFAULT_TUIPET_POSE_MAP, slugify } from "./convert";
@@ -118,252 +120,6 @@ export function dominantInkColor(png: PNG, opts: BitmapOptions = {}): string | u
 
 // --- colour extraction: photo-faithful, pi-pets-style -----------------------
 
-/** A frame as 16 rows x 16 cols of quantized "#rrggbb" or null (transparent). */
-export type HexGrid = Array<Array<string | null>>;
-
-export interface ColorExtractOptions {
-  /**
-   * 0..255 colour distance from the detected background for a pixel to count
-   * as part of the sprite (default 60). Pixels keep their OWN colour.
-   */
-  threshold?: number;
-  /** Output grid edge in pixels (default 16). 32/64 feed the hi-res layers. */
-  size?: number;
-}
-
-const quant = (v: number): number => Math.min(255, Math.round(v / 32) * 32);
-
-// GPT-converter geometry (agumon_tui_demo_white): crop to content, then
-// aspect-fill the canvas so the sprite fills ~88% of it — whole-image
-// sampling shrank padded cutouts into a huddled blob in the middle.
-const FILL = 0.88;
-
-/** Near-white, low-saturation background test (GPT: min>237, max-min<15). */
-function isNearWhite(r: number, g: number, b: number): boolean {
-  const max = Math.max(r, g, b);
-  const min = Math.min(r, g, b);
-  return min > 237 && max - min < 15;
-}
-
-/**
- * Extract a 16x16 colour grid. Content is bbox-cropped and aspect-filled;
- * only background-classified cells CONNECTED TO THE BORDER are transparent
- * (edge flood-fill) — enclosed whites (claws, belly) stay real pixels.
- */
-export function pngToHexGrid(png: PNG, opts: ColorExtractOptions = {}): HexGrid {
-  const threshold = opts.threshold ?? 60;
-  // background from the border ring
-  let transparentBorder = 0;
-  let borderTotal = 0;
-  let br = 0;
-  let bgc = 0;
-  let bb = 0;
-  let opaqueCount = 0;
-  const consider = (x: number, y: number) => {
-    const i = (png.width * y + x) << 2;
-    borderTotal++;
-    if (png.data[i + 3]! < 128) {
-      transparentBorder++;
-      return;
-    }
-    br += png.data[i]!;
-    bgc += png.data[i + 1]!;
-    bb += png.data[i + 2]!;
-    opaqueCount++;
-  };
-  for (let x = 0; x < png.width; x++) {
-    consider(x, 0);
-    consider(x, png.height - 1);
-  }
-  for (let y = 1; y < png.height - 1; y++) {
-    consider(0, y);
-    consider(png.width - 1, y);
-  }
-  const transparentMode = transparentBorder * 2 >= borderTotal;
-  const bcr = opaqueCount ? br / opaqueCount : 255;
-  const bcg = opaqueCount ? bgc / opaqueCount : 255;
-  const bcb = opaqueCount ? bb / opaqueCount : 255;
-  const borderNearWhite = isNearWhite(bcr, bcg, bcb);
-  const isBg = (x: number, y: number): boolean => {
-    const i = (png.width * y + x) << 2;
-    if (png.data[i + 3]! < 128) return true;
-    if (transparentMode) return false;
-    if (borderNearWhite) return isNearWhite(png.data[i]!, png.data[i + 1]!, png.data[i + 2]!);
-    const dr = png.data[i]! - bcr;
-    const dg = png.data[i + 1]! - bcg;
-    const db = png.data[i + 2]! - bcb;
-    return Math.sqrt(dr * dr + dg * dg + db * db) / Math.sqrt(3) < threshold;
-  };
-
-  // bbox of content in source pixels
-  let x0 = png.width;
-  let y0 = png.height;
-  let x1 = -1;
-  let y1 = -1;
-  for (let y = 0; y < png.height; y++) {
-    for (let x = 0; x < png.width; x++) {
-      if (!isBg(x, y)) {
-        if (x < x0) x0 = x;
-        if (y < y0) y0 = y;
-        if (x > x1) x1 = x;
-        if (y > y1) y1 = y;
-      }
-    }
-  }
-  const size = opts.size ?? 16;
-  const grid: HexGrid = Array.from({ length: size }, () => Array<string | null>(size).fill(null));
-  if (x1 < 0) return grid; // no content at all
-  const cropW = x1 - x0 + 1;
-  const cropH = y1 - y0 + 1;
-  const usable = Math.floor(size * FILL);
-  const scale = Math.min(usable / cropW, usable / cropH);
-  const outW = Math.max(1, Math.round(cropW * scale));
-  const outH = Math.max(1, Math.round(cropH * scale));
-  const offX = (size - outW) >> 1;
-  const offY = (size - outH) >> 1;
-  const hex = (v: number) => quant(v).toString(16).padStart(2, "0");
-  for (let y = 0; y < outH; y++) {
-    const sy = Math.min(png.height - 1, y0 + Math.floor(((y + 0.5) * cropH) / outH));
-    for (let x = 0; x < outW; x++) {
-      const sx = Math.min(png.width - 1, x0 + Math.floor(((x + 0.5) * cropW) / outW));
-      const i = (png.width * sy + sx) << 2;
-      // background-classified cells keep their literal colour for now —
-      // enclosed ones (white claws, belly) must STAY pixels; the edge flood
-      // below decides which background cells are actually transparent
-      grid[offY + y]![offX + x] = `#${hex(png.data[i]!)}${hex(png.data[i + 1]!)}${hex(png.data[i + 2]!)}`;
-    }
-  }
-  // edge flood: only border-connected background cells become transparent
-  const bgCell = (gx: number, gy: number): boolean => {
-    const sx = Math.min(png.width - 1, x0 + Math.floor(((gx - offX + 0.5) * cropW) / outW));
-    const sy = Math.min(png.height - 1, y0 + Math.floor(((gy - offY + 0.5) * cropH) / outH));
-    return isBg(sx, sy);
-  };
-  const seen = Array.from({ length: size }, () => Array<boolean>(size).fill(false));
-  const todo: Array<[number, number]> = [];
-  for (let x = 0; x < size; x++) {
-    todo.push([x, 0], [x, size - 1]);
-  }
-  for (let y = 1; y < size - 1; y++) {
-    todo.push([0, y], [size - 1, y]);
-  }
-  while (todo.length) {
-    const [gx, gy] = todo.pop()!;
-    if (gx < 0 || gy < 0 || gx >= size || gy >= size || seen[gy]![gx]!) continue;
-    seen[gy]![gx] = true;
-    if (!bgCell(gx, gy)) continue;
-    grid[gy]![gx] = null;
-    todo.push([gx - 1, gy], [gx + 1, gy], [gx, gy - 1], [gx, gy + 1]);
-  }
-  return grid;
-}
-
-const PALETTE_CHARS = "abcdefghijklmnopqrstuvwxyz23456789".split("");
-
-const l1 = (a: string, b: string): number =>
-  Math.abs(parseInt(a.slice(1, 3), 16) - parseInt(b.slice(1, 3), 16)) +
-  Math.abs(parseInt(a.slice(3, 5), 16) - parseInt(b.slice(3, 5), 16)) +
-  Math.abs(parseInt(a.slice(5, 7), 16) - parseInt(b.slice(5, 7), 16));
-
-/**
- * Build a shared palette (char -> colour) across grids and emit
- * palette-indexed pose rows ('.' = transparent). Two noise filters:
- *  - ranked colours closer than MIN_SEPARATION (L1) to a kept colour fold in;
- *  - LOW-SATURATION (neutral) candidates collapse to one per luminance band
- *    (dark / mid / light) — anti-aliasing between outline and background
- *    produces a whole grey RAMP that separation alone can't stop (each step
- *    is far enough from the last), but art only ever has one true neutral
- *    per band (the GPT converter's K/S/W).
- */
-const MIN_SEPARATION = 72;
-const NEUTRAL_SAT = 48; // max-min channel spread below this = neutral
-
-type Band = "dark" | "mid" | "light" | null;
-
-function neutralBand(color: string): Band {
-  const r = parseInt(color.slice(1, 3), 16);
-  const g = parseInt(color.slice(3, 5), 16);
-  const b = parseInt(color.slice(5, 7), 16);
-  if (Math.max(r, g, b) - Math.min(r, g, b) >= NEUTRAL_SAT) return null; // saturated
-  const lum = 0.299 * r + 0.587 * g + 0.114 * b;
-  return lum < 85 ? "dark" : lum > 170 ? "light" : "mid";
-}
-
-/** Select the kept palette colours (char -> #rrggbb) from all grids' pixels. */
-export function buildPaletteFromHexGrids(
-  grids: readonly HexGrid[],
-  maxColors = 32,
-): Record<string, string> {
-  const counts = new Map<string, number>();
-  for (const grid of grids) {
-    for (const row of grid) {
-      for (const color of row) {
-        if (color) counts.set(color, (counts.get(color) ?? 0) + 1);
-      }
-    }
-  }
-  const ranked = [...counts.entries()].sort((a, b) => b[1] - a[1]).map(([c]) => c);
-  const kept: string[] = [];
-  const neutralTaken = new Set<Band>();
-  for (const color of ranked) {
-    if (kept.length >= Math.min(maxColors, PALETTE_CHARS.length)) break;
-    const band = neutralBand(color);
-    if (band && neutralTaken.has(band)) continue; // this band's neutral is already kept
-    if (kept.some((k) => l1(k, color) < MIN_SEPARATION)) continue;
-    kept.push(color);
-    if (band) neutralTaken.add(band);
-  }
-  const palette: Record<string, string> = {};
-  kept.forEach((color, i) => {
-    palette[PALETTE_CHARS[i]!] = color;
-  });
-  return palette;
-}
-
-/** Index grids onto a palette ('.' = transparent), folding off-palette colours. */
-export function applyPalette(
-  grids: readonly HexGrid[],
-  palette: Record<string, string>,
-): string[][] {
-  const kept = Object.values(palette);
-  const nearest = (color: string): string => {
-    let best = kept[0]!;
-    let bestD = Infinity;
-    for (const k of kept) {
-      const d = l1(color, k);
-      if (d < bestD) {
-        bestD = d;
-        best = k;
-      }
-    }
-    return best;
-  };
-  const charFor = new Map(kept.map((c, i) => [c, PALETTE_CHARS[i]!] as const));
-  return grids.map((grid) =>
-    grid.map((row) =>
-      row.map((color) => (color ? charFor.get(nearest(color))! : ".")).join(""),
-    ),
-  );
-}
-
-/**
- * Build a shared palette (char -> colour) across grids and emit
- * palette-indexed pose rows ('.' = transparent). Two noise filters:
- *  - ranked colours closer than MIN_SEPARATION (L1) to a kept colour fold in;
- *  - LOW-SATURATION (neutral) candidates collapse to one per luminance band
- *    (dark / mid / light) — anti-aliasing between outline and background
- *    produces a whole grey RAMP that separation alone can't stop (each step
- *    is far enough from the last), but art only ever has one true neutral
- *    per band (the GPT converter's K/S/W).
- */
-export function paletteFromHexGrids(
-  grids: readonly HexGrid[],
-  maxColors = 32,
-): { palette: Record<string, string>; rows: string[][] } {
-  const palette = buildPaletteFromHexGrids(grids, maxColors);
-  return { palette, rows: applyPalette(grids, palette) };
-}
-
 function shiftContent(bitmap: string[], dy: number): string[] {
   const size = bitmap.length || CONTENT_ROWS;
   const blank = ".".repeat(bitmap[0]?.length ?? CONTENT_ROWS);
@@ -402,9 +158,8 @@ export function autoPoses(base: string[]): Record<PoseName, string[]> {
 }
 
 /**
- * One image -> full pose set at every layer: the 16x16 base defines the
- * palette, then the SAME image is resampled at 32/64 and snapped onto it —
- * single-image imports keep the hi-res detail folder imports have.
+ * Sample every layer directly from one masked source. Learn the shared
+ * palette from the detailed layer so eyes/claws absent at 16px survive.
  */
 export function pngToPosesLayers(
   png: PNG,
@@ -414,12 +169,14 @@ export function pngToPosesLayers(
   palette: Record<string, string>;
   hiPoses: Record<string, Record<string, string[]>>;
 } {
-  const base = pngToHexGrid(png, opts);
-  const palette = buildPaletteFromHexGrids([base]);
+  const image = prepareImage(png, opts.threshold);
+  const base = sampleImage(image, { ...opts, size: 16 });
+  const layers = HI_LAYERS.map((size) => sampleImage(image, { ...opts, size }));
+  const palette = buildPaletteFromHexGrids([base, layers.at(-1)!]);
   const poses = autoPoses(applyPalette([base], palette)[0]!);
   const hiPoses: Record<string, Record<string, string[]>> = {};
-  for (const layer of HI_LAYERS) {
-    const grid = pngToHexGrid(png, { ...opts, size: layer });
+  for (const [index, layer] of HI_LAYERS.entries()) {
+    const grid = layers[index];
     hiPoses[String(layer)] = autoPoses(applyPalette([grid], palette)[0]!);
   }
   return { poses, palette, hiPoses };
@@ -581,7 +338,8 @@ export interface FolderPosesResult {
 }
 
 /** Hi-res layers extracted from source images — /pet size gains real detail. */
-export const HI_LAYERS = [32, 64] as const;
+export const HI_LAYERS = [24, 32, 40, 48, 60, 64] as const;
+export const IMAGE_RECOMMENDED_SIZE = 40;
 
 /**
  * Build poses + roles from a folder of activity-named images. `idle` is
@@ -592,7 +350,7 @@ export const HI_LAYERS = [32, 64] as const;
  */
 export function posesFromFolder(
   dir: string,
-  opts: BitmapOptions & { color?: boolean } = {},
+  opts: ColorExtractOptions & { color?: boolean; alignment?: "shared" | "individual" } = {},
 ): FolderPosesResult {
   const files = readdirSync(dir).filter((f) => /\.(png|jpe?g)$/i.test(f));
   const color = opts.color ?? true;
@@ -603,6 +361,14 @@ export function posesFromFolder(
   const hiGridsByActivity = new Map<string, Map<number, HexGrid[]>>();
   let idleKeys: string[] | undefined;
   let ink: string | undefined;
+  const sourceFiles = ACTIVITIES.flatMap((activity) => collectActivityFiles(files, activity));
+  const sources = new Map(sourceFiles.map((file) => [file, PNG.sync.read(readFileSync(`${dir}/${file}`))]));
+  const images = new Map(color ? [...sources].map(([file, png]) => [file, prepareImage(png, opts.threshold)]) : []);
+  // Same-sized animation frames share their source coordinates. Their
+  // motion and prop extents must not cause each frame to zoom independently.
+  const dimensions = new Set([...sources.values()].map((p) => `${p.width}x${p.height}`));
+  const viewport = opts.viewport ?? (opts.alignment !== "individual" && dimensions.size === 1
+    ? sharedViewport([...images.values()]) : undefined);
 
   for (const activity of ACTIVITIES) {
     const activityFiles = collectActivityFiles(files, activity);
@@ -611,12 +377,13 @@ export function posesFromFolder(
     const hi = new Map<number, HexGrid[]>();
     const monoRows: string[][] = [];
     for (const file of activityFiles) {
-      const png = PNG.sync.read(readFileSync(`${dir}/${file}`));
+      const png = sources.get(file)!;
       if (color) {
-        grids.push(pngToHexGrid(png, { threshold: opts.threshold ?? 60 }));
+        const image = images.get(file)!;
+        grids.push(sampleImage(image, { ...opts, viewport, size: 16 }));
         for (const layer of HI_LAYERS) {
           const list = hi.get(layer) ?? [];
-          list.push(pngToHexGrid(png, { threshold: opts.threshold ?? 60, size: layer }));
+          list.push(sampleImage(image, { ...opts, viewport, size: layer }));
           hi.set(layer, list);
         }
       } else {
@@ -646,11 +413,8 @@ export function posesFromFolder(
     if (!all.length) {
       return { poses, roles, counts, error: "folder needs at least idle1.png (or idle.png / idleA.png)" };
     }
-    // ONE palette, defined by the 16x16 grids (the colour identity the user
-    // sees at the default size) — hi-res layers snap onto it, so their
-    // anti-aliased edge blends fold into real colours instead of flooding
-    // the palette with shades (the GPT converter's hard-palette behaviour)
-    const palette = buildPaletteFromHexGrids(all);
+    const detailed = [...hiGridsByActivity.values()].flatMap((layers) => layers.get(64) ?? []);
+    const palette = buildPaletteFromHexGrids([...all, ...detailed]);
     const rows = applyPalette(all, palette);
     let off = 0;
     for (const [activity, grids] of gridsByActivity) {

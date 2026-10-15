@@ -33,7 +33,6 @@ describe("reduceEvent — activity mapping (plan.md §12/§22)", () => {
     ["COMMAND_RUN", "code"],
     ["TEST_START", "test"],
     ["TEST_PASS", "happy"],
-    ["TASK_COMPLETE", "happy"],
     ["TEST_FAIL", "sad"],
     ["USER_CORRECTION", "sad"],
     ["SESSION_END", "sleep"],

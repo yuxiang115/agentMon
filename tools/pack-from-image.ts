@@ -50,6 +50,8 @@ if (!imgArg || !name) {
 const threshold = Number(arg("--threshold") ?? 60);
 const chain = process.argv.includes("--chain");
 const mono = process.argv.includes("--mono");
+const sampling = arg("--sampling") === "area" ? "area" : "nearest";
+const alignment = arg("--alignment") === "individual" ? "individual" : "shared";
 const stage = (arg("--stage") === "baby" ? "baby" : "branch") as "baby" | "branch";
 const defaultOut = join(
   process.env.PI_CODING_AGENT_DIR ?? join(homedir(), ".pi", "agent"),
@@ -80,7 +82,7 @@ try {
 
   if (entries && !imgArg.toLowerCase().endsWith(".png")) {
     // pose folder: idle1.png idle2.png ... code1.png ... (any subset, idle required)
-    folder = posesFromFolder(imgArg, { threshold, color: !mono });
+    folder = posesFromFolder(imgArg, { threshold, color: !mono, sampling, alignment });
     if (folder.error) {
       console.error(`✗ ${imgArg}: ${folder.error}`);
       process.exit(1);
@@ -117,7 +119,7 @@ try {
       const framesArg = arg("--frames");
       if (!framesArg && !mono) {
         // single image: derive poses at EVERY layer from the one source
-        const layered = pngToPosesLayers(png, { threshold });
+        const layered = pngToPosesLayers(png, { threshold, sampling });
         poses = layered.poses;
         palette = layered.palette;
         hiPoses = layered.hiPoses;
@@ -154,7 +156,7 @@ const pack = buildImagePack(poses, {
   roles,
   ink,
   palette,
-  hiPoses: folder?.hiPoses ?? undefined,
+  hiPoses,
 });
 if (palette) {
   const sp = (pack.species as Array<Record<string, unknown>>)[0]!;
@@ -180,7 +182,7 @@ const sample = poses[sampleKey]!.join("");
 const filled = sample.split("").filter((c) => c !== ".").length;
 console.log(`wrote ${file}`);
 console.log(`  species ${id} (${filled} filled pixels in ${sampleKey}), validation OK`);
-console.log(`next: in pi run  /pets import ${file}  (or just /reload), then /pets use ${id}`);
+console.log(`next: in pi run /pet import "${file}" (or /reload), then /pet use ${id} and /pet size 40`);
 if (basename(imgArg).toLowerCase().includes("agumon") || /digimon|agumon/i.test(name)) {
   console.log(`reminder: Digimon designs are © Bandai — keep this pack local, never commit it.`);
 }

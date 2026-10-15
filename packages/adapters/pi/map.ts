@@ -55,6 +55,7 @@ const BUILD_PATTERNS: RegExp[] = [
   /\bmix\s+compile\b/i,
   /(^|\s)make\b/i,
   /\btsc\b/i,
+  /\b(npm|yarn|pnpm|bun)\s+(run\s+)?(typecheck|lint)\b/i,
 ];
 
 export type CommandKind = "test" | "build" | "command";
@@ -109,10 +110,12 @@ export class PiAdapter {
   }
 
   onSessionStart(ts: number, ctx: EventContext): CodingEvent[] {
+    this.pending.clear();
     return [ev("SESSION_START", ts, ctx)];
   }
 
   onSessionShutdown(ts: number, ctx: EventContext): CodingEvent[] {
+    this.pending.clear();
     return [ev("SESSION_END", ts, ctx)];
   }
 
@@ -127,7 +130,8 @@ export class PiAdapter {
   }
 
   /** The agent finished responding to the user's request. */
-  onAgentSettled(ts: number, ctx: EventContext): CodingEvent[] {
-    return [ev("TASK_COMPLETE", ts, ctx)];
+  onAgentSettled(ts: number, ctx: EventContext, aborted = false): CodingEvent[] {
+    this.pending.clear();
+    return [ev(aborted ? "TASK_FAILED" : "TASK_COMPLETE", ts, ctx)];
   }
 }

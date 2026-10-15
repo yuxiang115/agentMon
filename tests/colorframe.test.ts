@@ -106,7 +106,7 @@ describe("colour extraction", () => {
       return null;
     });
     const grid = pngToHexGrid(png, {});
-    expect(grid[8]![7]).toBe("#ffa020"); // quantized orange (240/150/40 -> 255/160/32)
+    expect(grid[8]![7]).toBe("#f09628"); // source RGB is preserved before palette fitting
     expect(grid[0]![0]).toBeNull(); // canvas padding transparent
     // GPT-converter fidelity rule: only BORDER-CONNECTED background is
     // transparent; the enclosed eye stays a literal white pixel

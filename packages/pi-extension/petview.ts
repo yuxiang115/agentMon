@@ -4,7 +4,7 @@
 
 import type { Component, TUI } from "@earendil-works/pi-tui";
 import type { ExtensionContext } from "@earendil-works/pi-coding-agent";
-import { activePet, levelFromXp, xpProgress, type GameState } from "../core";
+import { activePet, levelFromXp, type GameState } from "../core";
 import { poseRowsFor, speciesFor } from "../../pets/registry";
 import { poseToColorGrid, renderColorScene } from "../renderer/src/colorframe";
 import { renderScreen } from "../renderer/src/framebuffer";
@@ -12,6 +12,7 @@ import { scaleRows } from "../renderer/src/scale";
 import { pickFrame, HOLD, SLEEP_BEAT, TICK_MS } from "../renderer/src/animation";
 import { evolvePlan } from "../renderer/src/evofx";
 import { evoPoseGrid, petAreaWidth, petCharRows, petSizeOf, truncateVisible } from "./widget";
+import { evolutionLines, journalLines, taskLine, xpLine } from "./growth";
 
 export interface PetViewOptions {
   tickMs?: number;
@@ -80,22 +81,26 @@ class PetScreen implements Component {
     }
     const c = pet.counters;
     const ageH = (pet.ageMs / 3_600_000).toFixed(1);
-    const prog = xpProgress(c.xp);
     const evolved = pet.evolutions.length
       ? ` · evolved ${pet.evolutions.map((e) => `${e.from}→${e.to}`).join(", ")}`
       : "";
     return [
-      ` ${pet.name} the ${species.name} (${species.stage}) Lv.${levelFromXp(c.xp)} — ${pet.activity} · ${pet.behaviorMode.toLowerCase()}${evolved}`,
+      ` ${pet.name} / ${species.name} (${species.lifeStage ?? species.stage}) Lv.${levelFromXp(c.xp)} — ${pet.activity} · ${pet.behaviorMode.toLowerCase()}${evolved}`,
       "",
       ...lcd.map((l) => " " + l),
       "",
-      ` xp ${prog.into}/${prog.span} (total ${c.xp}) · care mistakes ${pet.careMistakes}`,
+      ` ${xpLine(pet)} · total ${c.xp}`,
+      ` ${taskLine(pet)}`,
+      ...evolutionLines(pet).map((line) => ` ${line}`),
+      " Rewards (most recent first)",
+      ...journalLines(pet).map((line) => ` ${line}`),
+      ` Care mistakes ${pet.careMistakes}`,
       ` traits — research ${pet.traits.research} · implementation ${pet.traits.implementation} · validation ${pet.traits.validation}`,
       ` reads ${c.reads} · searches ${c.searches} · writes ${c.writes} · commands ${c.commands}`,
       ` tests ${c.testsPassed} pass / ${c.testsFailed} fail · builds ${c.buildsPassed}/${c.buildsFailed}`,
       ` tasks ${c.tasksCompleted} · corrections ${c.userCorrections} · age ${ageH}h`,
       "",
-      " q / ESC — close · /pet list · /pet use <species> · /pet size <16-60>",
+      " q / ESC — close · /pet journey · /pet partners · /pet size <16-60>",
     ].map((l) => truncateVisible(l, width));
   }
 

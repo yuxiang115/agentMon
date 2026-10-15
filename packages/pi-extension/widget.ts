@@ -9,8 +9,10 @@
 // so the default (16) is exactly the classic 32x16 LCD.
 
 import type { Component, TUI } from "@earendil-works/pi-tui";
+import { truncateToWidth, visibleWidth } from "@earendil-works/pi-tui";
 import type { ExtensionContext } from "@earendil-works/pi-coding-agent";
-import { activePet, levelFromXp, type GameState } from "../core";
+import { activePet, levelFromXp, type GameState, type PetState } from "../core";
+import { evolutionLines, taskLine, xpLine } from "./growth";
 import { poseRowsFor, speciesFor, type SpeciesDef } from "../../pets/registry";
 import { poseToColorGrid, renderColorScene, type ColorGrid } from "../renderer/src/colorframe";
 import { renderScene } from "../renderer/src/framebuffer";
@@ -18,7 +20,6 @@ import { roamBounds } from "../renderer/src/lcd";
 import { scaleRows } from "../renderer/src/scale";
 import { pickFrame, Roamer, HOLD, SLEEP_BEAT, TICK_MS, type Rng } from "../renderer/src/animation";
 import { evolvePlan, silhouetteGrid, whitenGrid, type EvoPlan } from "../renderer/src/evofx";
-import { stripAnsi } from "../renderer/src/halfblock";
 
 export interface DisplayOptions {
   tickMs?: number;
@@ -125,24 +126,12 @@ interface OverlayTuiLike {
 
 /** Truncate to a visible column count, preserving ANSI escapes (width 0). */
 export function truncateVisible(line: string, width: number): string {
-  if (stripAnsi(line).length <= width) return line;
-  let out = "";
-  let w = 0;
-  for (let i = 0; i < line.length && w < width - 1; i++) {
-    const m = /^\x1b\[[0-9;]*m/.exec(line.slice(i));
-    if (m) {
-      out += m[0];
-      i += m[0].length - 1;
-      continue;
-    }
-    out += line[i];
-    w++;
-  }
-  return out + "…";
+  if (width <= 0) return "";
+  return truncateToWidth(line, width, "…");
 }
 
 function padVisible(line: string, width: number): string {
-  const len = stripAnsi(line).length;
+  const len = visibleWidth(line);
   if (len >= width) return truncateVisible(line, width);
   return line + " ".repeat(width - len);
 }
@@ -159,6 +148,8 @@ export class PetOverlay implements Component {
   private hidden = false;
   /** Evolution fx state (species the pet transformed FROM). */
   private evolve?: { from: string; startTick: number };
+  private reward?: { message: string; fromXp: number; startTick: number };
+  private petId: string | null;
 
   constructor(
     private tui: OverlayTuiLike,
@@ -170,6 +161,7 @@ export class PetOverlay implements Component {
     this.size = clampPetSize(size);
     this.rng = rng;
     this.tickMs = tickMs;
+    this.petId = getState().activePetId;
     this.roamer = this.makeRoamer();
     const [minX, maxX] = this.bounds();
     this.timer = setInterval(() => this.tick(minX, maxX), tickMs);
@@ -200,8 +192,12 @@ export class PetOverlay implements Component {
   /** Start the evolution transform (from the species the pet used to be). */
   startEvolve(fromId: string): void {
     this.evolve = { from: fromId, startTick: this.tickN };
-    this.hidden = false;
     this.tui.requestRender();
+  }
+
+  startReward(message: string, fromXp: number): void {
+    this.reward = { message, fromXp, startTick: this.tickN };
+    this.requestRender();
   }
 
   private tick(minX: number, maxX: number): void {
@@ -219,14 +215,42 @@ export class PetOverlay implements Component {
     if (!this.hidden) this.tui.requestRender();
   }
 
+  refresh(state: GameState): void {
+    if (this.petId !== state.activePetId) {
+      this.petId = state.activePetId;
+      this.reward = undefined;
+      this.evolve = undefined;
+      this.roamer = this.makeRoamer();
+    }
+    this.requestRender();
+  }
+
   private panel(lcd: string[], title: string, width: number): string[] {
     const w = Math.min(width, overlayWidthFor(this.size));
+    if (w < 5) return [];
     const inner = w - 2;
-    const fill = Math.max(1, inner - stripAnsi(title).length - 1);
+    const heading = truncateVisible(title, inner - 1);
+    const fill = Math.max(0, inner - visibleWidth(heading) - 1);
     return [
-      "┌─" + title + "─".repeat(fill) + "┐",
+      "┌─" + heading + "─".repeat(fill) + "┐",
       ...lcd.map((l) => "│ " + padVisible(l, inner - 2) + " │"),
       "└" + "─".repeat(inner) + "┘",
+    ];
+  }
+
+  private device(lcd: string[], pet: PetState, effect?: string): string[] {
+    const species = speciesFor(pet.species);
+    const elapsed = this.reward ? (this.tickN - this.reward.startTick) * this.tickMs : Infinity;
+    const ratio = Math.min(1, elapsed / 900);
+    const xp = this.reward ? this.reward.fromXp + (pet.counters.xp - this.reward.fromXp) * ratio : pet.counters.xp;
+    const feedback = effect ?? (this.reward && elapsed < 4000
+      ? `${this.tickN % 2 ? "✦" : "✧"} ${this.reward.message}` : `Status: ${pet.activity}`);
+    const goals = evolutionLines(pet);
+    const unmet = goals.slice(1).find((line) => line.startsWith("·"));
+    return [
+      `${species.name} · ${species.lifeStage ?? species.stage}`,
+      ...lcd, xpLine(pet, xp), taskLine(pet), feedback,
+      goals[0], unmet ?? (goals[0].startsWith("Next:") ? "Ready at next task completion" : goals[1]),
     ];
   }
 
@@ -247,7 +271,7 @@ export class PetOverlay implements Component {
       const grid = evoPoseGrid(plan, speciesFor(this.evolve.from), species, pet.activity, this.tickN, this.size);
       if (grid) {
         return this.panel(
-          renderColorScene([{ grid, xLeft: centreX }], areaW, rows),
+          this.device(renderColorScene([{ grid, xLeft: centreX }], areaW, rows), pet, `EVOLVE: ${plan.stage.toUpperCase()}`),
           ` ${pet.name} Lv.${levelFromXp(pet.counters.xp)} · evolving `,
           width,
         );
@@ -270,7 +294,7 @@ export class PetOverlay implements Component {
         )
       : renderScene([{ frame: scaled, xLeft: x, mirror }], areaW, rows, { on: species.ink ?? "#2b2e31" });
 
-    return this.panel(lcd, title, width);
+    return this.panel(this.device(lcd, pet), title, width);
   }
 
   invalidate(): void {
@@ -291,6 +315,7 @@ export interface PetDisplayHandle {
   setSize(n: number): void;
   /** Play the evolution transform from the species the pet used to be. */
   startEvolve(fromId: string): void;
+  startReward(message: string, fromXp: number): void;
   dispose(): void;
 }
 
@@ -330,7 +355,7 @@ export function installPetDisplay(
 
   return {
     refresh(state: GameState) {
-      overlay?.requestRender();
+      overlay?.refresh(state);
     },
     toggle() {
       if (!handle) return false;
@@ -350,6 +375,9 @@ export function installPetDisplay(
     },
     startEvolve(fromId: string) {
       overlay?.startEvolve(fromId);
+    },
+    startReward(message: string, fromXp: number) {
+      overlay?.startReward(message, fromXp);
     },
     dispose() {
       overlay?.dispose();

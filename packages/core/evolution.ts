@@ -22,6 +22,8 @@ export interface EvolutionGates {
   maxCareMistakes: number;
   /** Validated-task ratio (validation discipline; Guardian's bar). */
   minValidatedRatio?: number;
+  /** Successful validated tasks; recoverable through further work. */
+  minValidatedTasks?: number;
 }
 
 export interface EvolutionRule {
@@ -32,6 +34,14 @@ export interface EvolutionRule {
 
 /** The three Stage-5 branches from the baby form (plan.md §16). */
 export const EVOLUTION_RULES: readonly EvolutionRule[] = [
+  {
+    from: "botamon", to: "koromon",
+    gates: { minLevel: 2, axis: "research", minTraitShare: 0, minTasks: 3, maxCareMistakes: Number.MAX_SAFE_INTEGER },
+  },
+  {
+    from: "koromon", to: "agumon",
+    gates: { minLevel: 3, axis: "validation", minTraitShare: 0, minTasks: 8, minValidatedTasks: 2, maxCareMistakes: Number.MAX_SAFE_INTEGER },
+  },
   {
     from: "byte",
     to: "scout",
@@ -89,6 +99,7 @@ function gatesPass(pet: PetState, gates: EvolutionGates, shares: Record<TraitAxi
   if (shares[gates.axis] < gates.minTraitShare) return false;
   if (pet.counters.tasksCompleted < gates.minTasks) return false;
   if (pet.careMistakes > gates.maxCareMistakes) return false;
+  if (pet.validatedTasks < (gates.minValidatedTasks ?? 0)) return false;
   if (gates.minValidatedRatio !== undefined) {
     const ratio = pet.counters.tasksCompleted > 0 ? pet.validatedTasks / pet.counters.tasksCompleted : 0;
     if (ratio < gates.minValidatedRatio) return false;

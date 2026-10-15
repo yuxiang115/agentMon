@@ -11,6 +11,7 @@ import {
   posesFromFolder,
   posesFromFrames,
   sheetToBitmaps,
+  HI_LAYERS,
 } from "../pets/imagepack";
 import { loadPetPacks } from "../pets/packs";
 
@@ -191,16 +192,16 @@ describe("pose folders: N frames per activity", () => {
       writePng(join(dir, "code1.png"), blobPng(48, 48, 20, 16));
       const r = posesFromFolder(dir, {});
       expect(r.error).toBeUndefined();
-      expect(Object.keys(r.hiPoses ?? {})).toEqual(["32", "64"]);
-      const baseChars = new Set(Object.values(r.poses).map((rows) => rows.join("")).join(""));
-      for (const layer of ["32", "64"]) {
+      expect(Object.keys(r.hiPoses ?? {})).toEqual(HI_LAYERS.map(String));
+      const paletteChars = new Set([".", ...Object.keys(r.palette!)]);
+      for (const layer of HI_LAYERS.map(String)) {
         const n = Number(layer);
         expect(Object.keys(r.hiPoses![layer]!)).toEqual(["idle1", "code1"]);
         for (const rows of Object.values(r.hiPoses![layer]!)) {
           expect(rows).toHaveLength(n);
           expect(rows.every((row) => row.length === n)).toBe(true);
-          // shared palette: layer rows only use chars the 16x16 base uses
-          for (const ch of rows.join("")) expect(baseChars.has(ch)).toBe(true);
+          // High-res layers may retain colors too small for the 16px base.
+          for (const ch of rows.join("")) expect(paletteChars.has(ch)).toBe(true);
         }
       }
       // the pack with layers validates with the real loader

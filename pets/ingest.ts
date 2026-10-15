@@ -20,6 +20,7 @@ import {
   collectActivityFiles,
   posesFromFolder,
   pngToPosesLayers,
+  IMAGE_RECOMMENDED_SIZE,
 } from "./imagepack";
 import { slugify } from "./convert";
 import { PNG } from "pngjs";
@@ -29,7 +30,7 @@ export interface SmartImportOptions extends ImportOptions {
   displayName?: string;
 }
 
-export type SmartImportResult = ImportResult;
+export type SmartImportResult = ImportResult & { recommendedSize?: number };
 
 /** Does the folder (or any subfolder, a few levels deep) hold pose-named images? */
 function findImageFolder(dir: string): string | null {
@@ -173,7 +174,7 @@ export function smartImportPet(srcPath: string, petsDir: string, opts: SmartImpo
         ink: r.ink,
         hiPoses: r.hiPoses,
       });
-      return installGeneratedPack(pack, petsDir);
+      return { ...installGeneratedPack(pack, petsDir), recommendedSize: IMAGE_RECOMMENDED_SIZE };
     }
 
     // single PNG (11 poses auto-derived at every layer)
@@ -182,7 +183,7 @@ export function smartImportPet(srcPath: string, petsDir: string, opts: SmartImpo
       const { poses, palette, hiPoses } = pngToPosesLayers(png, {});
       const name = opts.displayName ?? prettifyFolderName(basename(dir));
       const pack = buildImagePack(poses, { name, id: slugify(name), palette, hiPoses });
-      return installGeneratedPack(pack, petsDir);
+      return { ...installGeneratedPack(pack, petsDir), recommendedSize: IMAGE_RECOMMENDED_SIZE };
     }
 
     return fail([

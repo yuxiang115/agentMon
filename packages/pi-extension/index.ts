@@ -18,6 +18,7 @@ import { dirname, join, resolve } from "node:path";
 import {
   addPet,
   createPet,
+  setActivePet,
   levelFromXp,
   reduceEvent,
   EMOTION_TTL_MS,
@@ -28,11 +29,12 @@ import { PetStore } from "../storage/store";
 import { PiAdapter, type EventContext } from "../adapters/pi/map";
 import { installPetDisplay, petSizeOf, clampPetSize, type PetDisplayHandle } from "./widget";
 import { openPetView } from "./petview";
+import { evolutionLines, journalLines, xpLine } from "./growth";
+import { petArguments } from "./args";
 import { openDebugView, type TraceEntry } from "./debug";
 import { mulberry32 } from "../renderer/src/animation";
 import { detectColorMode, setColorMode } from "../renderer/src/halfblock";
 import { loadPetPacks } from "../../pets/packs";
-import { smartImportPet } from "../../pets/ingest";
 import {
   allSpecies,
   registerSpecies,
@@ -74,7 +76,7 @@ export default function agentmon(pi: ExtensionAPI, options: AgentMonOptions = {}
   const trace: TraceEntry[] = [];
   const TRACE_LIMIT = 50;
   /** Subcommands of the single /pet command (no args = full view). */
-  const PET_SUBS = ["list", "use", "size", "import", "ui", "rename", "debug", "help"];
+  const PET_SUBS = ["journey", "hatch", "partners", "partner", "list", "use", "size", "import", "ui", "rename", "debug", "help"];
   /** Evolution rules register once per pack slug (imports may re-run loading). */
   const registeredRuleSlugs = new Set<string>();
 
@@ -133,15 +135,24 @@ export default function agentmon(pi: ExtensionAPI, options: AgentMonOptions = {}
         const form = speciesFor(a.species);
         ui?.notify?.(`agentMon: ${a.name} evolved into ${form.name}! Lv.${lvAfter}`, "info");
         display?.startEvolve(b.species);
-      } else if (lvAfter > lvBefore) {
+      }
+      if (lvAfter > lvBefore) {
         ui?.notify?.(`agentMon: ${a.name} leveled up — Lv.${lvAfter}!`, "info");
       }
+      const gained = a.counters.xp - b.counters.xp;
+      if (gained > 0) display?.startReward(
+        `+${gained} XP${lvAfter > lvBefore ? ` · LEVEL UP ${lvAfter}!` : a.rewards?.at(-1)?.firstPass ? " · first pass!" : " · well done!"}`,
+        b.counters.xp,
+      );
     }
   }
 
   function ensurePet(): GameState {
     return store.update((s) => {
-      return s.activePetId && s.pets[s.activePetId] ? s : addPet(s, createPet({ name: "Byte", now: now() }));
+      if (s.activePetId && s.pets[s.activePetId]) return s;
+      const existing = Object.keys(s.pets)[0];
+      if (existing) return setActivePet(s, existing);
+      return addPet(s, createPet({ name: "Botamon", species: "botamon", now: now() }));
     }, now());
   }
 
@@ -200,8 +211,8 @@ export default function agentmon(pi: ExtensionAPI, options: AgentMonOptions = {}
     apply(evs);
   });
 
-  pi.on("agent_settled", (_event, ctx) => {
-    const evs = adapter.onAgentSettled(now(), metaFrom(ctx));
+  pi.on("agent_settled", (event, ctx) => {
+    const evs = adapter.onAgentSettled(now(), metaFrom(ctx), event.aborted);
     traced("agent_settled", evs.map((e) => e.type));
     apply(evs);
   });
@@ -218,7 +229,7 @@ export default function agentmon(pi: ExtensionAPI, options: AgentMonOptions = {}
 
   // ONE command: /pet with subcommands (the old /pets was folded in here).
   pi.registerCommand("pet", {
-    description: "agentMon pet — full view · list · use <species> · size <16-60> · import <path> · ui · rename <name> · debug",
+    description: "Coding Digivice — journey · hatch · partners · partner <id> · list · use <species> · size · import · ui · rename · debug",
     getArgumentCompletions: (prefix: string) => {
       const p = prefix.trim();
       if (p.startsWith("use")) {
@@ -242,8 +253,50 @@ export default function agentmon(pi: ExtensionAPI, options: AgentMonOptions = {}
     },
     handler: async (args: string, ctx: ExtensionContext) => {
       loadPacks(ctx);
-      const parts = args.trim().split(/\s+/).filter(Boolean);
+      let parts: string[];
+      try { parts = petArguments(args); }
+      catch (error) { ctx.ui?.notify?.(`agentMon: ${(error as Error).message}`, "warning"); return; }
       const sub = parts[0] ?? "";
+
+      if (sub === "journey") {
+        const state = ensurePet();
+        const pet = state.pets[state.activePetId!];
+        ctx.ui?.notify?.([
+          `${pet.name} / ${speciesFor(pet.species).name} · ${xpLine(pet)}`,
+          ...evolutionLines(pet), ...journalLines(pet),
+          "Rewards: task +10 · validated +5 · first pass +5 · fresh-code test +3 / build +2",
+        ].join("\n"), "info");
+        return;
+      }
+
+      if (sub === "partners") {
+        const state = ensurePet();
+        ctx.ui?.notify?.(Object.values(state.pets).map((pet) =>
+          `${pet.id === state.activePetId ? "*" : " "} ${pet.id} · ${pet.name} / ${speciesFor(pet.species).name} Lv.${levelFromXp(pet.counters.xp)}`,
+        ).join("\n"), "info");
+        return;
+      }
+
+      if (sub === "hatch" || sub === "partner") {
+        const current = store.read(now());
+        if (current.activePetId && current.pets[current.activePetId]?.task) {
+          ctx.ui?.notify?.("agentMon: finish the current quest before switching partners.", "warning");
+          return;
+        }
+        if (sub === "partner" && !current.pets[parts[1]]) {
+          ctx.ui?.notify?.("agentMon: use /pet partners to find a partner ID.", "warning");
+          return;
+        }
+        const state = store.update((s) => {
+          if (sub === "partner") return setActivePet(s, parts[1]);
+          const pet = createPet({ name: parts.slice(1).join(" ").slice(0, 24) || "Botamon", species: "botamon", now: now() });
+          return setActivePet(addPet(s, pet), pet.id);
+        }, now());
+        display?.refresh(state);
+        ui?.setStatus?.("agentmon", footerStatus(state));
+        ctx.ui?.notify?.(`agentMon: ${state.pets[state.activePetId!].name} is your active partner! Botamon → Koromon → Agumon`, "info");
+        return;
+      }
 
       // /pet with no arguments = the full-screen view
       if (!sub) {
@@ -258,7 +311,7 @@ export default function agentmon(pi: ExtensionAPI, options: AgentMonOptions = {}
 
       if (sub === "help") {
         ctx.ui?.notify?.(
-          "agentMon /pet — no args: full view · list: species · use <id>: wear a form · size <16-60>: sprite size · import <zip|folder|pack.json|sprites.json> [name]: install & activate · ui: toggle the panel · rename <name> · debug: event trace",
+          "agentMon /pet — full view · journey: growth goals & rewards · hatch [name]: new Botamon (keeps old partners) · partners / partner <id>: collection · list / use <id>: cosmetic form override · size <16-60> · import <path> [name] · ui · rename <name> · debug",
           "info",
         );
         return;
@@ -322,6 +375,18 @@ export default function agentmon(pi: ExtensionAPI, options: AgentMonOptions = {}
       }
 
       if (sub === "import" && parts[1]) {
+        // PNG/ZIP conversion is only needed for explicit imports. A missing
+        // optional feature dependency must not prevent the pet from loading.
+        let smartImportPet: typeof import("../../pets/ingest").smartImportPet;
+        try {
+          ({ smartImportPet } = await import("../../pets/ingest"));
+        } catch (error) {
+          ctx.ui?.notify?.(
+            `agentMon: pet import unavailable: ${error instanceof Error ? error.message : String(error)}. Reinstall this plugin's runtime dependencies (pngjs and fflate), then reload Pi.`,
+            "warning",
+          );
+          return;
+        }
         const src = resolve(ctx.cwd ?? process.cwd(), parts[1]);
         const rest = parts.slice(2).join(" ").split(",").map((s) => s.trim()).filter(Boolean);
         const result = smartImportPet(src, packsDir, {
@@ -353,12 +418,17 @@ export default function agentmon(pi: ExtensionAPI, options: AgentMonOptions = {}
             return { ...s, pets: { ...s.pets, [pet.id]: next } };
           }, now());
           activated = first.name;
+          if (result.recommendedSize && petSizeOf(state) < result.recommendedSize) {
+            const size = clampPetSize(result.recommendedSize);
+            store.update((s) => ({ ...s, ui: { ...s.ui, petSize: size } }), now());
+            display?.setSize(size);
+          }
           display?.refresh(state);
           ui?.setStatus?.("agentmon", footerStatus(state));
         }
         ctx.ui?.notify?.(
           activated
-            ? `agentMon: imported ${ids.join(", ")} — ${activated} activated!`
+            ? `agentMon: imported ${ids.join(", ")} — ${activated} activated!${result.recommendedSize ? ` Image detail: /pet size ${result.recommendedSize} (or 48/60).` : ""}`
             : `agentMon: imported ${ids.join(", ")} — /pet use <id> to wear it`,
           "info",
         );

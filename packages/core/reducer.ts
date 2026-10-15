@@ -55,7 +55,6 @@ const WORK_EVENTS: ReadonlySet<EventType> = new Set<EventType>([
   "READ",
   "SEARCH",
   "THINK_START",
-  "THINK_END",
   "CODE_WRITE",
   "COMMAND_RUN",
   "TEST_START",
@@ -104,8 +103,6 @@ export const COUNTER_KEY: Partial<Record<EventType, keyof Counters>> = {
   BUILD_START: "buildsStarted",
   BUILD_PASS: "buildsPassed",
   BUILD_FAIL: "buildsFailed",
-  TASK_COMPLETE: "tasksCompleted",
-  TASK_FAILED: "tasksFailed",
   USER_CORRECTION: "userCorrections",
 };
 
@@ -128,6 +125,7 @@ export function normalizePet(pet: PetState): PetState {
     behaviorMode: pet.behaviorMode ?? "STEADY",
     validatedTasks: pet.validatedTasks ?? 0,
     evolutions: pet.evolutions ?? [],
+    rewards: pet.rewards ?? [],
   };
 }
 
@@ -162,6 +160,9 @@ export function reduceEvent(state: GameState, event: CodingEvent): GameState {
   // event's own clock — ticks may not have run) is normalized to idle first,
   // so a stale happy/sad can never block a lower-precedence event.
   const normalized = normalizePet(raw);
+  // Settlement is a boundary, not evidence of work. Duplicate or late
+  // settlements must not manufacture task counts, rewards or celebrations.
+  if ((event.type === "TASK_COMPLETE" || event.type === "TASK_FAILED") && !normalized.task) return state;
   const stale = normalized.emotionUntil !== null && event.ts >= normalized.emotionUntil;
   let next: PetState = {
     ...normalized,
@@ -210,7 +211,10 @@ export function reduceEvent(state: GameState, event: CodingEvent): GameState {
   switch (type) {
     case "CODE_WRITE":
       next.dirty = true;
-      if (task) task.writes++;
+      if (task) {
+        task.writes++;
+        task.validated = false; // the previous pass does not cover new edits
+      }
       break;
     case "TEST_START":
     case "BUILD_START":
@@ -221,6 +225,7 @@ export function reduceEvent(state: GameState, event: CodingEvent): GameState {
       if (task) {
         task.failedEver = true;
         task.unresolvedFail = true;
+        task.validated = false;
       }
       break;
     case "TEST_PASS":
@@ -232,6 +237,10 @@ export function reduceEvent(state: GameState, event: CodingEvent): GameState {
       }
       if (next.dirty) {
         next.counters.xp += award;
+        next.rewards = [...(next.rewards ?? []), {
+          at: event.ts, source: type === "TEST_PASS" ? "test" as const : "build" as const,
+          xp: award, validated: true, firstPass: !task?.failedEver,
+        }].slice(-20);
         next.dirty = false;
         if (task) task.rewardedPasses++;
       }
@@ -243,11 +252,16 @@ export function reduceEvent(state: GameState, event: CodingEvent): GameState {
       break;
     case "TASK_COMPLETE": {
       if (task) {
+        next.counters.tasksCompleted++;
         let award = XP_AWARDS.TASK_COMPLETE;
         if (task.validated) award += XP_AWARDS.VALIDATED_TASK_BONUS;
         // first-pass = validated AND nothing ever failed along the way
         if (task.validated && !task.failedEver) award += XP_AWARDS.FIRST_PASS_BONUS;
         next.counters.xp += award;
+        next.rewards = [...(next.rewards ?? []), {
+          at: event.ts, source: "task" as const, xp: award,
+          validated: task.validated, firstPass: task.validated && !task.failedEver,
+        }].slice(-20);
         if (task.validated) next.validatedTasks++;
         next.careMistakes += mistakesAtTaskClose(task).length;
         next.task = null;
@@ -265,6 +279,12 @@ export function reduceEvent(state: GameState, event: CodingEvent): GameState {
       }
       break;
     }
+    case "TASK_FAILED":
+      next.counters.tasksFailed++;
+      next.task = null;
+      next.dirty = false;
+      next = applyActivity(next, "sad", event.ts, true);
+      break;
     case "SESSION_END":
       // task abandoned mid-flight: no completion XP, no close charges
       next.task = null;

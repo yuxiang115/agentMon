@@ -100,6 +100,16 @@ export interface PetState {
   validatedTasks: number;
   /** Evolution history: [{from, to, at}]. */
   evolutions: Array<{ from: string; to: string; at: number }>;
+  /** Bounded reward journal; optional for pre-device saves. */
+  rewards?: RewardRecord[];
+}
+
+export interface RewardRecord {
+  at: number;
+  source: "test" | "build" | "task";
+  xp: number;
+  validated: boolean;
+  firstPass: boolean;
 }
 
 export interface GameState {
@@ -161,6 +171,7 @@ export function createPet(opts: CreatePetOptions): PetState {
     behaviorMode: "STEADY",
     validatedTasks: 0,
     evolutions: [],
+    rewards: [],
   };
 }
 

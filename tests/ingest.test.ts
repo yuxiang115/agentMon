@@ -11,6 +11,7 @@ import { zipSync } from "fflate";
 import { smartImportPet } from "../pets/ingest";
 import { loadPetPacks } from "../pets/packs";
 import { resetCustomSpecies } from "../pets/registry";
+import { HI_LAYERS } from "../pets/imagepack";
 
 /** A synthetic pose PNG: orange blob with a dark outline on white. */
 function posePng(): PNG {
@@ -57,7 +58,8 @@ describe("smartImportPet", () => {
       const loaded = loadPetPacks(petsDir);
       expect(loaded.errors).toEqual([]);
       const sp = loaded.species[0]!;
-      expect(Object.keys(sp.hiPoses ?? {})).toEqual(["32", "64"]);
+      expect(Object.keys(sp.hiPoses ?? {})).toEqual(HI_LAYERS.map(String));
+      expect(r.recommendedSize).toBe(40);
       expect(sp.palette).toBeTruthy();
     } finally {
       rmSync(root, { recursive: true, force: true });
@@ -120,7 +122,7 @@ describe("smartImportPet", () => {
       expect(r.ok).toBe(true);
       expect(Object.keys(r.species?.[0]?.poses ?? {})).toHaveLength(11);
       // single-image imports now carry the hi-res layers too
-      expect(Object.keys(r.species?.[0]?.hiPoses ?? {})).toEqual(["32", "64"]);
+      expect(Object.keys(r.species?.[0]?.hiPoses ?? {})).toEqual(HI_LAYERS.map(String));
       for (const layer of ["32", "64"]) {
         expect(Object.keys(r.species?.[0]?.hiPoses?.[layer] ?? {})).toHaveLength(11);
       }

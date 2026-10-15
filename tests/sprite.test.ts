@@ -4,16 +4,17 @@ import { POSE_NAMES, SPECIES } from "../pets/registry";
 describe("species invariants (every creature in the registry)", () => {
   for (const [id, species] of Object.entries(SPECIES)) {
     describe(`${species.name} (${id})`, () => {
-      it("has all 11 poses, each 16 rows of exactly 16 chars of #/.", () => {
+      it("has all 11 poses, each 16 rows of 16 valid palette pixels", () => {
         expect(Object.keys(species.poses).sort()).toEqual([...POSE_NAMES].sort());
         for (const name of POSE_NAMES) {
           const pose = species.poses[name];
           expect(pose.length, `${id}/${name}: 16 rows`).toBe(16);
           for (const [i, row] of pose.entries()) {
             expect(row.length, `${id}/${name} row ${i}: 16 cols`).toBe(16);
-            expect(row, `${id}/${name} row ${i}: only # and .`).toMatch(/^[#.]*$/);
+            const allowed = new Set([".", ...Object.keys(species.palette ?? { "#": "ink" })]);
+            expect([...row].every((c) => allowed.has(c)), `${id}/${name}: valid pixels`).toBe(true);
           }
-          expect(pose.some((r) => r.includes("#")), `${id}/${name}: has ink`).toBe(true);
+          expect(pose.some((r) => /[^.]/.test(r)), `${id}/${name}: has ink`).toBe(true);
         }
       });
 
@@ -21,7 +22,7 @@ describe("species invariants (every creature in the registry)", () => {
         for (const name of POSE_NAMES) {
           expect(species.poses[name][14], `${id}/${name} row 14 empty`).toMatch(/^\.+$/);
           expect(species.poses[name][15], `${id}/${name} row 15 empty`).toMatch(/^\.+$/);
-          expect(species.poses[name][13], `${id}/${name} has feet on row 13`).toMatch(/#/);
+          expect(species.poses[name][13], `${id}/${name} has feet on row 13`).toMatch(/[^.]/);
         }
       });
 
