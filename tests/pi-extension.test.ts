@@ -198,7 +198,7 @@ describe("agentMon extension entry (C6: events really reach the pet)", () => {
     );
     expect(showOverlay).toHaveBeenCalledWith(
       expect.anything(),
-      expect.objectContaining({ nonCapturing: true, anchor: "top-right", width: 36 }),
+      expect.objectContaining({ nonCapturing: true, anchor: "top-right", width: 20 }),
     );
     expect(bridge.render(80)).toEqual([]); // the bridge renders nothing
 
@@ -226,21 +226,35 @@ describe("agentMon extension entry (C6: events really reach the pet)", () => {
 
     await pi.commands.get("pet")!.handler("size 48", ctx);
     expect(showOverlay).toHaveBeenCalledTimes(2); // re-anchored at the new width
-    expect(showOverlay.mock.calls[1]?.[1]).toMatchObject({ width: 48 + 16 + 4 });
+    expect(showOverlay.mock.calls[1]?.[1]).toMatchObject({ width: Math.ceil((48 + 16) / 2) + 4 });
     expect(ctx.ui.notify).toHaveBeenCalledWith(expect.stringContaining("48"), "info");
     expect(JSON.parse(readStateFile(dir)).ui).toEqual({ petSize: 48 });
 
     // the panel itself renders 48px of sprite = 24 terminal rows + borders
+    // (quad packs 2px per column: (48 sprite + 16 roam) / 2 + 4 chrome)
     const overlay = showOverlay.mock.calls[0]?.[0] as unknown as { render(w: number): string[] };
     const lines = overlay.render(100);
     expect(lines).toHaveLength(24 + 3); // LCD rows + borders + species line
-    expect(lines[0]!.length).toBe(68); // 48 sprite + 16 roam + 4 chrome (no ANSI in the title)
+    expect(lines[0]!.length).toBe(Math.ceil((48 + 16) / 2) + 4);
 
     // out-of-range clamps instead of erroring
     await pi.commands.get("pet")!.handler("size 500", ctx);
     expect(JSON.parse(readStateFile(dir)).ui).toEqual({ petSize: 60 });
     await pi.commands.get("pet")!.handler("size abc", ctx);
     expect(ctx.ui.notify).toHaveBeenCalledWith(expect.stringContaining("16-60"), "warning");
+  });
+
+  it("/pet renderer switches the LCD packing and persists", async () => {
+    const pi = boot();
+    const ctx = mockCtx();
+    fire(pi, "session_start", {}, ctx);
+    await pi.commands.get("pet")!.handler("renderer half", ctx);
+    expect(JSON.parse(readStateFile(dir)).ui).toMatchObject({ renderer: "half" });
+    expect(ctx.ui.notify).toHaveBeenCalledWith(expect.stringContaining("half-block"), "info");
+    await pi.commands.get("pet")!.handler("renderer quad", ctx);
+    expect(JSON.parse(readStateFile(dir)).ui).toMatchObject({ renderer: "quad" });
+    await pi.commands.get("pet")!.handler("renderer bogus", ctx);
+    expect(ctx.ui.notify).toHaveBeenCalledWith(expect.stringContaining("/pet renderer <quad|half>"), "info");
   });
 
   it("the footer status follows events and carries the journey numbers", () => {

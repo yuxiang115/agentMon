@@ -9,7 +9,7 @@ import { poseRowsFor, speciesFor } from "../../pets/registry";
 import { poseToColorGrid, renderColorScene } from "../renderer/src/colorframe";
 import { renderScreen } from "../renderer/src/framebuffer";
 import { scaleRows } from "../renderer/src/scale";
-import { pickFrame, HOLD, SLEEP_BEAT, TICK_MS } from "../renderer/src/animation";
+import { pickActivityFrames, HOLD, SLEEP_BEAT, TICK_MS } from "../renderer/src/animation";
 import { evolvePlan } from "../renderer/src/evofx";
 import { evoPoseGrid, petAreaWidth, petCharRows, petSizeOf, truncateVisible } from "./widget";
 import { evolutionLines, journalLines, taskLine, xpLine } from "./growth";
@@ -114,7 +114,9 @@ class PetScreen implements Component {
   ): string[] {
     const poseNames = species.roles[activity] ?? species.roles.idle;
     const hold = activity === "sleep" ? SLEEP_BEAT : HOLD;
-    const frame = pickFrame(poseNames.map((p) => poseRowsFor(species, p, size)), this.tickN, hold);
+    // two-frame idle/walk loops are [open, blink] — blink naturally
+    const blink = (activity === "idle" || activity === "walk") && poseNames.length === 2;
+    const frame = pickActivityFrames(poseNames.map((p) => poseRowsFor(species, p, size)), this.tickN, hold, blink);
     const scaled = scaleRows(frame, size);
     return species.palette
       ? renderColorScene(

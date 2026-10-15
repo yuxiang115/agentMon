@@ -17,6 +17,33 @@ export const SLEEP_BEAT = 10; // sleep pose period
 /** Default pose hold (tuipet idle_hold: 5 restless / 6 normal / 7 calm). */
 export const HOLD = 3;
 
+/** Natural blinking: a two-frame idle loop is [eyes open, blink], so it
+ *  must NOT cycle 50/50 (pickFrame's flutter reads as a twitch). The eyes
+ *  stay open for ~2.9 s, then close for one classic hold (300 ms). */
+export const BLINK_PERIOD_TICKS = 32;
+export const BLINK_CLOSED_TICKS = 3;
+
+/**
+ * Frame picker for activity loops: two-frame idle/walk loops blink
+ * naturally; everything else (3+ frame pack loops, sleep/happy/think…)
+ * keeps the plain hold-based cycle.
+ */
+export function pickActivityIndex(count: number, tick: number, hold = HOLD, blink = false): number {
+  if (blink && count === 2) {
+    return tick % BLINK_PERIOD_TICKS >= BLINK_PERIOD_TICKS - BLINK_CLOSED_TICKS ? 1 : 0;
+  }
+  return Math.floor(tick / hold) % count;
+}
+
+export function pickActivityFrames<T>(
+  frames: readonly T[],
+  tick: number,
+  hold = HOLD,
+  blink = false,
+): T {
+  return frames[pickActivityIndex(frames.length, tick, hold, blink)]!;
+}
+
 export function idleHold(restless: number): number {
   return restless > 0 ? 5 : restless < 0 ? 7 : 6;
 }

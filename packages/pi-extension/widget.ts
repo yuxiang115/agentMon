@@ -7,17 +7,24 @@
 // Pet size: poses are authored 16x16 and rendered at `size` pixels
 // (16..60, `/pet size`); the sprite keeps 16px of walking room beside it,
 // so the default (16) is exactly the classic 32x16 LCD.
+//
+// Renderer: quadrant blocks (default, 2x2 px per cell — the same pixel grid
+// at half the terminal width) or the classic half-block LCD (`/pet renderer`).
+// Palette (image-imported) pets always render half-block: a cell carries only
+// one foreground and one background colour.
 
 import type { Component, TUI } from "@earendil-works/pi-tui";
 import { truncateToWidth, visibleWidth } from "@earendil-works/pi-tui";
 import type { ExtensionContext } from "@earendil-works/pi-coding-agent";
 import { activePet, type GameState, type PetState } from "../core";
 import { poseRowsFor, speciesFor, type SpeciesDef } from "../../pets/registry";
-import { poseToColorGrid, renderColorScene, type ColorGrid } from "../renderer/src/colorframe";
-import { renderScene } from "../renderer/src/framebuffer";
+import { poseToColorGrid, renderColorScene, type ColorGrid, type ColorPlacement } from "../renderer/src/colorframe";
+import { renderScene, type ScenePlacement } from "../renderer/src/framebuffer";
+import { renderQuadColorScene, renderQuadScene } from "../renderer/src/quadblock";
+import { zzzColumn, zzzGlyphSize, zzzPhase } from "../renderer/src/zzz";
 import { roamBounds } from "../renderer/src/lcd";
 import { scaleRows } from "../renderer/src/scale";
-import { pickFrame, Roamer, HOLD, SLEEP_BEAT, TICK_MS, type Rng } from "../renderer/src/animation";
+import { pickActivityIndex, pickFrame, Roamer, HOLD, SLEEP_BEAT, TICK_MS, type Rng } from "../renderer/src/animation";
 import { evolvePlan, silhouetteGrid, whitenGrid, type EvoPlan } from "../renderer/src/evofx";
 
 export interface DisplayOptions {
@@ -25,12 +32,24 @@ export interface DisplayOptions {
   rng: Rng;
   /** Sprite pixel edge (clamped to 16..60). Default 16. */
   size?: number;
+  /** LCD cell packing: quadrant blocks (default) or classic half-blocks. */
+  renderer?: RendererMode;
 }
 
 /** Pet sprite size range, `/pet size` (pixels = terminal columns). */
 export const PET_SIZE_MIN = 16;
 export const PET_SIZE_MAX = 60;
 export const PET_SIZE_DEFAULT = 16;
+
+/** LCD cell packing: quad = 2x2 px quadrant glyphs (half the width),
+ *  half = the classic ▀-per-cell LCD. Palette (image-imported) pets always
+ *  render half-block — a cell carries only one fg + one bg colour. */
+export type RendererMode = "half" | "quad";
+export const RENDERER_DEFAULT: RendererMode = "quad";
+
+export function rendererOf(state: GameState): RendererMode {
+  return state.ui?.renderer === "half" ? "half" : "quad";
+}
 
 export function clampPetSize(n: number): number {
   if (!Number.isFinite(n)) return PET_SIZE_DEFAULT;
@@ -47,9 +66,10 @@ export function petCharRows(size: number): number {
   return Math.ceil(size / 2);
 }
 
-/** border + padding + play area + padding + border */
-export function overlayWidthFor(size: number): number {
-  return petAreaWidth(size) + 4;
+/** border + padding + play area + padding + border; quad packs 2 px per col */
+export function overlayWidthFor(size: number, quad = false): number {
+  const area = quad ? Math.ceil(petAreaWidth(size) / 2) : petAreaWidth(size);
+  return area + 4;
 }
 
 /** The active pet size from persisted display settings. */
@@ -143,6 +163,9 @@ export class PetOverlay implements Component {
   private size: number;
   private readonly rng: Rng;
   private readonly tickMs: number;
+  private renderer: RendererMode;
+  /** Last "what the screen can show" signature — gate for requestRender. */
+  private lastSig = "";
   /** Set while the panel is toggled away — pauses ticking AND rendering. */
   private hidden = false;
   /** Evolution fx state (species the pet transformed FROM). */
@@ -156,8 +179,10 @@ export class PetOverlay implements Component {
     tickMs: number,
     rng: Rng,
     size = PET_SIZE_DEFAULT,
+    renderer: RendererMode = RENDERER_DEFAULT,
   ) {
     this.size = clampPetSize(size);
+    this.renderer = renderer;
     this.rng = rng;
     this.tickMs = tickMs;
     this.petId = getState().activePetId;
@@ -175,6 +200,79 @@ export class PetOverlay implements Component {
     return roamBounds(this.size, petAreaWidth(this.size));
   }
 
+  /** Everything the screen can show right now, hashed into one string. */
+  private visualSignature(pet: PetState): string {
+    const species = speciesFor(pet.species);
+    const evo = this.evolve
+      ? (() => {
+          const plan = evolvePlan((this.tickN - this.evolve!.startTick) * this.tickMs);
+          return `${plan.stage}:${plan.form}:${Math.round(plan.whiteness * 12)}:${plan.flashWhite ? 1 : 0}`;
+        })()
+      : "-";
+    const toast = this.reward
+      ? `${Math.floor(((this.tickN - this.reward.startTick) * this.tickMs) / 300)}:` +
+        `${(this.tickN - this.reward.startTick) * this.tickMs < 4000 ? 1 : 0}`
+      : "-";
+    return [
+      pet.id, pet.species, pet.activity, this.poseIndex(pet, species),
+      this.roamer.x, this.roamer.mirror,
+      pet.activity === "sleep" ? zzzPhase(this.tickN) : "-",
+      this.size, toast, evo,
+    ].join("|");
+  }
+
+  /** Pose loop state shared by render() and the repaint gate. */
+  private poseIndex(pet: PetState, species: SpeciesDef): number {
+    const names = species.roles[pet.activity] ?? species.roles.idle;
+    const hold = pet.activity === "sleep" ? SLEEP_BEAT : HOLD;
+    // two-frame idle/walk loops are [open, blink] — blink naturally, don't cycle
+    const blink = (pet.activity === "idle" || pet.activity === "walk") && names.length === 2;
+    return pickActivityIndex(Math.max(1, names.length), this.tickN, hold, blink);
+  }
+
+  /** The pet's LCD lines at the current tick: pose + zzz, quad/half/colour. */
+  private sceneLines(
+    pet: PetState,
+    species: SpeciesDef,
+    areaW: number,
+    rows: number,
+    centreX: number,
+  ): string[] {
+    const names = species.roles[pet.activity] ?? species.roles.idle;
+    const index = this.poseIndex(pet, species);
+    const scaled = scaleRows(poseRowsFor(species, names[index] ?? names[0]!, this.size), this.size);
+    const roaming = pet.activity === "idle" || pet.activity === "walk";
+    const x = roaming ? this.roamer.x : centreX;
+    const mirror = roaming ? this.roamer.mirror : false;
+    const ink = species.ink ?? "#2b2e31";
+    const sleeping = pet.activity === "sleep";
+    const z = sleeping ? zzzColumn(this.size, zzzPhase(this.tickN), rows * 2) : undefined;
+    const zx = areaW - zzzGlyphSize(this.size) - 1;
+
+    if (this.renderer === "quad") {
+      if (species.palette) {
+        const grids: ColorPlacement[] = [
+          { grid: poseToColorGrid(scaled, species.palette, this.size), xLeft: x, mirror },
+        ];
+        if (z) grids.push({ grid: z.map((r) => [...r].map((c) => (c === "." ? null : "#8a8f94"))), xLeft: zx });
+        return renderQuadColorScene(grids, Math.ceil(areaW / 2), rows);
+      }
+      const placements: ScenePlacement[] = [{ frame: scaled, xLeft: x, mirror }];
+      if (z) placements.push({ frame: z, xLeft: zx });
+      return renderQuadScene(placements, Math.ceil(areaW / 2), rows, { on: ink });
+    }
+    if (species.palette) {
+      const grids: ColorPlacement[] = [
+        { grid: poseToColorGrid(scaled, species.palette, this.size), xLeft: x, mirror },
+      ];
+      if (z) grids.push({ grid: z.map((r) => [...r].map((c) => (c === "." ? null : "#8a8f94"))), xLeft: zx });
+      return renderColorScene(grids, areaW, rows);
+    }
+    const placements: ScenePlacement[] = [{ frame: scaled, xLeft: x, mirror }];
+    if (z) placements.push({ frame: z, xLeft: zx });
+    return renderScene(placements, areaW, rows, { on: ink });
+  }
+
   /** Live-resize the sprite (16..60). Caller re-anchors the overlay. */
   setSize(n: number): void {
     this.size = clampPetSize(n);
@@ -186,6 +284,18 @@ export class PetOverlay implements Component {
   setHidden(v: boolean): void {
     this.hidden = v;
     if (!v) this.tui.requestRender();
+  }
+
+  /** True when the current pet renders through the quadrant LCD. */
+  wantsQuad(): boolean {
+    return this.renderer === "quad";
+  }
+
+  /** Switch LCD cell packing; caller re-anchors the overlay width. */
+  setRenderer(mode: RendererMode): void {
+    this.renderer = mode;
+    this.lastSig = ""; // force a repaint at the new packing
+    this.tui.requestRender();
   }
 
   /** Start the evolution transform (from the species the pet used to be). */
@@ -206,7 +316,15 @@ export class PetOverlay implements Component {
     if (pet && (pet.activity === "idle" || pet.activity === "walk")) {
       this.roamer.step(minX, maxX);
     }
-    this.tui.requestRender();
+    // Repaint only when the visible frame can change: pose switch, blink,
+    // roam step, zzz rise, toast blink, or an evolution-fx bucket. A sleeping
+    // pet drops from 10 repaints/s to ~1; the signature is derived from the
+    // same picks render() uses, so the two can never disagree.
+    const sig = pet ? this.visualSignature(pet) : "-";
+    if (sig !== this.lastSig) {
+      this.lastSig = sig;
+      this.tui.requestRender();
+    }
   }
 
   /** Bump from outside (a coding event arrived). */
@@ -224,8 +342,8 @@ export class PetOverlay implements Component {
     this.requestRender();
   }
 
-  private panel(lcd: string[], title: string, width: number): string[] {
-    const w = Math.min(width, overlayWidthFor(this.size));
+  private panel(lcd: string[], title: string, width: number, quad = false): string[] {
+    const w = Math.min(width, overlayWidthFor(this.size, quad));
     if (w < 5) return [];
     const inner = w - 2;
     const heading = truncateVisible(title, inner - 1);
@@ -246,7 +364,8 @@ export class PetOverlay implements Component {
     const species = speciesFor(pet.species);
     const elapsed = this.reward ? (this.tickN - this.reward.startTick) * this.tickMs : Infinity;
     const toast = this.reward && elapsed < 4000
-      ? `${this.tickN % 2 ? "✦" : "✧"} ${this.reward.message}` : undefined;
+      // calmer than a per-tick strobe: swap ✦/✧ every 300 ms
+      ? `${Math.floor(elapsed / 300) % 2 === 0 ? "✦" : "✧"} ${this.reward.message}` : undefined;
     const feedback = effect ?? toast;
     return [
       `${species.name} · ${species.lifeStage ?? species.stage}`,
@@ -260,6 +379,7 @@ export class PetOverlay implements Component {
     const pet = activePet(this.getState());
     if (!pet) return [];
     const species = speciesFor(pet.species);
+    const quad = this.renderer === "quad";
     const areaW = petAreaWidth(this.size);
     const rows = petCharRows(this.size);
     const centreX = Math.round((areaW - this.size) / 2);
@@ -271,31 +391,30 @@ export class PetOverlay implements Component {
       const plan = evolvePlan(elapsed);
       const grid = evoPoseGrid(plan, speciesFor(this.evolve.from), species, pet.activity, this.tickN, this.size);
       if (grid) {
+        // quad mode renders the fx through the colour quadrant LCD too —
+        // mono grids are single-colour, so they pack losslessly
+        let lcd: string[];
+        if (quad) {
+          lcd = renderQuadColorScene([{ grid, xLeft: centreX }], Math.ceil(areaW / 2), rows);
+        } else {
+          lcd = renderColorScene([{ grid, xLeft: centreX }], areaW, rows);
+        }
         return this.panel(
-          this.device(renderColorScene([{ grid, xLeft: centreX }], areaW, rows), pet, `EVOLVE: ${plan.stage.toUpperCase()}`),
-          ` ${pet.name} · evolving `,
+          this.device(lcd, pet, `EVOLVE: ${plan.stage.toUpperCase()}`),
+          " ✦ evolving ✦ ",
           width,
+          quad,
         );
       }
       this.evolve = undefined; // done — fall through to normal
     }
 
-    const poseNames = species.roles[pet.activity] ?? species.roles.idle;
-    const hold = pet.activity === "sleep" ? SLEEP_BEAT : HOLD;
-    const frame = pickFrame(poseNames.map((p) => poseRowsFor(species, p, this.size)), this.tickN, hold);
-    const scaled = scaleRows(frame, this.size);
-    const roaming = pet.activity === "idle" || pet.activity === "walk";
-    const x = roaming ? this.roamer.x : centreX;
-    const mirror = roaming ? this.roamer.mirror : false;
-    const lcd = species.palette
-      ? renderColorScene(
-          [{ grid: poseToColorGrid(scaled, species.palette, this.size), xLeft: x, mirror }],
-          areaW,
-          rows,
-        )
-      : renderScene([{ frame: scaled, xLeft: x, mirror }], areaW, rows, { on: species.ink ?? "#2b2e31" });
-
-    return this.panel(this.device(lcd, pet), title, width);
+    return this.panel(
+      this.device(this.sceneLines(pet, species, areaW, rows, centreX), pet),
+      title,
+      width,
+      quad,
+    );
   }
 
   invalidate(): void {
@@ -314,6 +433,8 @@ export interface PetDisplayHandle {
   toggle(): boolean;
   /** Live-resize the sprite (16..60), re-anchoring the overlay width. */
   setSize(n: number): void;
+  /** Switch LCD cell packing (quad/half), re-anchoring the overlay width. */
+  setRenderer(mode: RendererMode): void;
   /** Play the evolution transform from the species the pet used to be. */
   startEvolve(fromId: string): void;
   startReward(message: string): void;
@@ -334,22 +455,34 @@ export function installPetDisplay(
   let handle: OverlayHandleLike | undefined;
   let overlayTui: OverlayTuiLike | undefined;
   let hidden = false;
+  let curSize = clampPetSize(opts.size ?? PET_SIZE_DEFAULT);
+  let anchorQuad = false;
 
-  function show(tui: OverlayTuiLike, size: number): void {
+  function show(tui: OverlayTuiLike, size: number, quad: boolean): void {
     handle = tui.showOverlay(overlay!, {
       nonCapturing: true,
       anchor: "top-right",
-      width: overlayWidthFor(size),
+      width: overlayWidthFor(size, quad),
       margin: { top: 1, right: 1 },
     });
+    anchorQuad = quad;
     handle.setHidden(hidden); // preserve a user toggle across resizes
+  }
+
+  /** pi-tui reads options.width only at show time — re-anchor the same
+   *  component (public API: hide + showOverlay again), e.g. after a size or
+   *  renderer change, or when a palette pet needs the wide half-block LCD. */
+  function reanchor(): void {
+    if (!overlay || !overlayTui) return;
+    handle?.hide();
+    handle = undefined;
+    show(overlayTui, curSize, overlay.wantsQuad());
   }
 
   ctx.ui.setWidget("agentmon-bridge", (tui: TUI, _theme) => {
     overlayTui = tui as unknown as OverlayTuiLike;
-    const size = clampPetSize(opts.size ?? PET_SIZE_DEFAULT);
-    overlay = new PetOverlay(overlayTui, readState, opts.tickMs ?? TICK_MS, opts.rng, size);
-    show(overlayTui, size);
+    overlay = new PetOverlay(overlayTui, readState, opts.tickMs ?? TICK_MS, opts.rng, curSize, opts.renderer ?? RENDERER_DEFAULT);
+    show(overlayTui, curSize, overlay.wantsQuad());
     // the bridge itself renders nothing — the overlay is what users see
     return { render: () => [], invalidate: () => {} };
   });
@@ -357,6 +490,8 @@ export function installPetDisplay(
   return {
     refresh(state: GameState) {
       overlay?.refresh(state);
+      // switching to/from a palette (image-imported) pet flips the packing
+      if (overlay && overlay.wantsQuad() !== anchorQuad) reanchor();
     },
     toggle() {
       if (!handle) return false;
@@ -368,11 +503,13 @@ export function installPetDisplay(
     setSize(n: number) {
       if (!overlay || !overlayTui) return;
       overlay.setSize(n);
-      // pi-tui reads options.width only at show time — re-anchor the same
-      // component at the new width (public API: hide + showOverlay again)
-      handle?.hide();
-      handle = undefined;
-      show(overlayTui, n);
+      curSize = n;
+      reanchor();
+    },
+    setRenderer(mode: RendererMode) {
+      if (!overlay) return;
+      overlay.setRenderer(mode);
+      reanchor();
     },
     startEvolve(fromId: string) {
       overlay?.startEvolve(fromId);

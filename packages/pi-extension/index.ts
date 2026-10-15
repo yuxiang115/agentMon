@@ -28,7 +28,7 @@ import {
 import type { CodingEvent } from "../events/types";
 import { PetStore } from "../storage/store";
 import { PiAdapter, type EventContext } from "../adapters/pi/map";
-import { installPetDisplay, petSizeOf, clampPetSize, type PetDisplayHandle } from "./widget";
+import { installPetDisplay, petSizeOf, clampPetSize, rendererOf, type PetDisplayHandle } from "./widget";
 import { openPetView } from "./petview";
 import { evolutionLines, footerGoal, journalLines, xpLine } from "./growth";
 import { petArguments } from "./args";
@@ -79,7 +79,7 @@ export default function agentmon(pi: ExtensionAPI, options: AgentMonOptions = {}
   const trace: TraceEntry[] = [];
   const TRACE_LIMIT = 50;
   /** Subcommands of the single /pet command (no args = full view). */
-  const PET_SUBS = ["journey", "hatch", "partners", "partner", "list", "use", "size", "import", "ui", "rename", "debug", "help"];
+  const PET_SUBS = ["journey", "hatch", "partners", "partner", "list", "use", "size", "renderer", "import", "ui", "rename", "debug", "help"];
   /** Evolution rules register once per pack slug (imports may re-run loading). */
   const registeredRuleSlugs = new Set<string>();
 
@@ -184,6 +184,7 @@ export default function agentmon(pi: ExtensionAPI, options: AgentMonOptions = {}
         tickMs: options.tickMs,
         rng,
         size: petSizeOf(store.read(now())),
+        renderer: rendererOf(store.read(now())),
       });
       // Time alone moves the pet (idle dozes off, emotions cool down) —
       // poll once a second so the footer never shows a stale activity.
@@ -253,7 +254,7 @@ export default function agentmon(pi: ExtensionAPI, options: AgentMonOptions = {}
 
   // ONE command: /pet with subcommands (the old /pets was folded in here).
   pi.registerCommand("pet", {
-    description: "Coding Digivice — journey · hatch · partners · partner <id> · list · use <species> · size · import · ui · rename · debug",
+    description: "Coding Digivice — journey · hatch · partners · partner <id> · list · use <species> · size · renderer · import · ui · rename · debug",
     getArgumentCompletions: (prefix: string) => {
       const p = prefix.trim();
       if (p.startsWith("use")) {
@@ -266,6 +267,12 @@ export default function agentmon(pi: ExtensionAPI, options: AgentMonOptions = {}
             insertValue: `use ${s.id}`,
             description: `${s.name} (${speciesSource(s.id)})`,
           }));
+      }
+      if (p.startsWith("renderer")) {
+        const partial = p.slice(8).trim();
+        return ["quad", "half"]
+          .filter((m) => m.startsWith(partial))
+          .map((m) => ({ value: `renderer ${m}`, label: m, insertValue: `renderer ${m}` }));
       }
       if (p.startsWith("size")) {
         const partial = p.slice(4).trim();
@@ -335,7 +342,7 @@ export default function agentmon(pi: ExtensionAPI, options: AgentMonOptions = {}
 
       if (sub === "help") {
         ctx.ui?.notify?.(
-          "agentMon /pet — full view · journey: growth goals & rewards · hatch [name]: new Botamon (keeps old partners) · partners / partner <id>: collection · list / use <id>: cosmetic form override · size <16-60> · import <path> [name] · ui · rename <name> · debug",
+          "agentMon /pet — full view · journey: growth goals & rewards · hatch [name]: new Botamon (keeps old partners) · partners / partner <id>: collection · list / use <id>: cosmetic form override · size <16-60> · renderer <quad|half>: LCD cell packing · import <path> [name] · ui · rename <name> · debug",
           "info",
         );
         return;
@@ -395,6 +402,22 @@ export default function agentmon(pi: ExtensionAPI, options: AgentMonOptions = {}
         display?.setSize(n);
         display?.refresh(state);
         ctx.ui?.notify?.(`agentMon: pet size ${n} (16-60)`, "info");
+        return;
+      }
+
+      if (sub === "renderer") {
+        const mode = parts[1];
+        if (mode !== "half" && mode !== "quad") {
+          ctx.ui?.notify?.(
+            `agentMon: renderer is ${rendererOf(store.read(now()))} — /pet renderer <quad|half> (quad: 2x2px quadrant cells at half the width; palette image pets always render half-block)`,
+            "info",
+          );
+          return;
+        }
+        const state = store.update((s) => ({ ...s, ui: { ...s.ui, renderer: mode } }), now());
+        display?.setRenderer(mode);
+        display?.refresh(state);
+        ctx.ui?.notify?.(`agentMon: renderer ${mode} (${mode === "quad" ? "quadrant cells, half the width" : "classic half-block LCD"})`, "info");
         return;
       }
 

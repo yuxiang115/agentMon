@@ -10,7 +10,7 @@ A reference-first terminal V-Pet that lives inside your coding agent: the agent'
 
 ## Coding Digivice / 代码 Agent 的数码暴龙机
 
-新存档默认领养 **黑球兽（Botamon）**，随 Pi 的工作活动切换思考、探索、编写、验证、开心、失落、睡眠动作。面板只保留精灵本体（形态行 + LCD + 短暂的奖励提示），XP 进度、任务状态和下一个进化条件改在 TUI 底部状态栏随事件实时更新（空闲入睡等纯时间变化也会同步）；升级有通知，进化播放蓄力 → 闪烁 → 显形。
+新存档默认领养 **黑球兽（Botamon）**，随 Pi 的工作活动切换思考、探索、编写、验证、开心、失落、睡眠动作。面板只保留精灵本体（形态行 + LCD + 短暂的奖励提示），XP 进度、任务状态和下一个进化条件改在 TUI 底部状态栏随事件实时更新（空闲入睡等纯时间变化也会同步）。LCD 默认用象限块字形（▘▝▖▗，2×2 像素/格）渲染 —— 同样的像素网格、宽度减半（/pet renderer half 换回经典 ▀ 半块）。眨眼改为自然节奏（约 3 秒一次），睡着时身旁有缓缓上升的 z；升级有通知，进化播放蓄力 → 闪烁 → 显形。
 
 | 阶段 | 进化条件（累计） |
 | --- | --- |
@@ -26,6 +26,7 @@ A reference-first terminal V-Pet that lives inside your coding agent: the agent'
 /pet partners        列出伙伴及 ID
 /pet partner <id>    切换伙伴（任务结束后）
 /pet size 24         放大精灵
+/pet renderer quad   象限块渲染（默认，2×2 像素/格、宽度减半）；half 回到经典 ▀ 半块 LCD
 ```
 
 已有存档继续使用原来的宠物；用 `/pet hatch` 开始新路线。`/pet use <species>` 仍是手动形态覆盖，会跳过正常养成，请用 `hatch` 体验从幼年期开始的流程。亚古兽之后的阶段尚未加入，仍可继续升级。

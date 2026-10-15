@@ -5,6 +5,9 @@
 
 import { fgColor, bgColor, RESET, UPPER, LOWER, FULL } from "./halfblock";
 
+/** Default-background ANSI (transparent LCD hole, colour-pet style). */
+export const BG_DEFAULT = "\u001b[49m";
+
 /** A frame as 16 rows x N cols of "#rrggbb" or null (transparent). */
 export type ColorGrid = Array<Array<string | null>>;
 
@@ -45,16 +48,16 @@ function cell(top: string | null, bottom: string | null): string {
 }
 
 /**
- * Compose colour placements onto a cols x (charRows*2) canvas and render as
- * ANSI lines. Sprites ground with the same baseline rule as the 1-bit path.
+ * Compose colour placements onto a cols x (charRows*2) pixel canvas.
+ * Sprites ground with the same baseline rule as the 1-bit path.
  */
-export function renderColorScene(
+export function composeColorCanvas(
   placements: readonly ColorPlacement[],
-  cols = 32,
-  charRows = 8,
-): string[] {
+  cols: number,
+  charRows: number,
+): ColorGrid {
   const pxH = charRows * 2;
-  const canvas: Array<Array<string | null>> = Array.from({ length: pxH }, () =>
+  const canvas: ColorGrid = Array.from({ length: pxH }, () =>
     Array<string | null>(cols).fill(null),
   );
   for (const p of placements) {
@@ -71,6 +74,19 @@ export function renderColorScene(
       }
     }
   }
+  return canvas;
+}
+
+/**
+ * Compose colour placements onto a cols x (charRows*2) canvas and render as
+ * ANSI lines. Sprites ground with the same baseline rule as the 1-bit path.
+ */
+export function renderColorScene(
+  placements: readonly ColorPlacement[],
+  cols = 32,
+  charRows = 8,
+): string[] {
+  const canvas = composeColorCanvas(placements, cols, charRows);
   const lines: string[] = [];
   for (let cy = 0; cy < charRows; cy++) {
     let line = "";

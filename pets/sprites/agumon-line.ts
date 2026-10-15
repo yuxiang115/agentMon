@@ -52,7 +52,9 @@ function makeSpecies(id: string, name: string, lifeStage: string, base: string[]
       testB: pixels(blink, [[13, 8, "g"], [14, 9, "g"], [15, 8, "g"], [15, 7, "g"]]),
       happy: pixels(base, [[0, 2, "y"], [1, 1, "y"], [1, 3, "y"], [2, 2, "y"], [14, 1, "y"], [14, 3, "y"], [13, 2, "y"], [15, 2, "y"]]),
       sad: pixels(blink, [[3, 10, "b"], [12, 10, "b"]]),
-      sleep: pixels(blink, [[13, 0, "b"], [14, 0, "b"], [14, 1, "b"], [13, 2, "b"], [14, 2, "b"]]),
+      // sleep drops the old baked-in "z" bubble — the rising zzz fx beside
+      // the pet (renderer/src/zzz.ts) animates that tell for every species
+      sleep: blink,
     },
     roles: {
       idle: ["idleA", "idleB"], walk: ["idleA", "idleB"], think: ["think", "idleB"],

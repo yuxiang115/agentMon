@@ -82,7 +82,7 @@ describe("device feedback", () => {
   it("keeps the device compact — journey numbers live in the footer, not the panel", () => {
     vi.useFakeTimers();
     let state = game();
-    const overlay = new PetOverlay({ requestRender() {}, showOverlay: vi.fn() }, () => state, 100, () => 0.5);
+    const overlay = new PetOverlay({ requestRender() {}, showOverlay: vi.fn() }, () => state, 100, () => 0.5, 16, "half");
     try {
       expect(footerGoal(activePet(state)!)).toBe("Koromon · Lv.1/2");
       state = run(state, "CODE_WRITE");
@@ -103,6 +103,29 @@ describe("device feedback", () => {
       vi.advanceTimersByTime(800);
       expect(overlay.render(36).join("\n")).not.toContain("evolving");
     } finally { overlay.dispose(); vi.useRealTimers(); }
+  });
+
+  it("repaints only when the visible frame can change (a sleeping pet rests)", () => {
+    vi.useFakeTimers();
+    const requestRender = vi.fn();
+    const state = run(game(), "SESSION_END"); // the pet dozes off
+    const overlay = new PetOverlay({ requestRender, showOverlay: vi.fn() }, () => state, 100, () => 0.5);
+    try {
+      vi.advanceTimersByTime(6000); // 60 ticks
+      const calls = requestRender.mock.calls.length;
+      expect(calls).toBeGreaterThan(0); // it still animates (pose + zzz rise)
+      expect(calls).toBeLessThan(30); // ...but nowhere near the ungated 60
+    } finally { overlay.dispose(); vi.useRealTimers(); }
+  });
+
+  it("renders the default quadrant LCD at half the half-block width", () => {
+    const state = game();
+    const overlay = new PetOverlay({ requestRender() {}, showOverlay: vi.fn() }, () => state, 100000, () => 0.5);
+    try {
+      const quad = overlay.render(60).map((l) => l.replace(/\u001b\[[0-9;]*m/g, ""));
+      expect(visibleWidth(quad[0]!)).toBe(20); // ceil((16 sprite + 16 roam) / 2) + 4 chrome
+      expect(quad.join("\n")).toMatch(/[▘▝▖▗▚▞▌▐▙▛▜▟█▄▀]/); // quadrant glyphs on the LCD
+    } finally { overlay.dispose(); }
   });
 
   it("fits narrow terminals and Chinese names by display columns", () => {
