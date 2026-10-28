@@ -123,7 +123,7 @@ export interface GameState {
    * Display settings — extension-managed (e.g. `/pet size`), ignored by the
    * core reducer; survives saves because every mutation spreads the state.
    */
-  ui?: { petSize?: number; renderer?: "half" | "quad" };
+  ui?: { petSize?: number; renderer?: "half" | "quad"; pixelExact?: boolean };
 }
 
 export interface CreatePetOptions {

@@ -28,7 +28,7 @@ import {
 import type { CodingEvent } from "../events/types";
 import { PetStore } from "../storage/store";
 import { PiAdapter, type EventContext } from "../adapters/pi/map";
-import { installPetDisplay, petSizeOf, clampPetSize, renderSizeFor, rendererOf, type PetDisplayHandle } from "./widget";
+import { installPetDisplay, petSizeOf, clampPetSize, pixelExactOf, renderSizeFor, rendererOf, type PetDisplayHandle } from "./widget";
 import { openPetView } from "./petview";
 import { evolutionLines, footerGoal, journalLines, xpLine } from "./growth";
 import { petArguments } from "./args";
@@ -60,6 +60,18 @@ function defaultStateDir(): string {
   return join(base, "agentmon");
 }
 
+/** For a pixel-art pet: which size actually draws, and how to change it. */
+function pixelArtNote(state: GameState, size: number): string {
+  const pet = state.activePetId ? state.pets[state.activePetId] : undefined;
+  const species = pet ? speciesFor(pet.species) : undefined;
+  const sizes = species?.pixelSizes;
+  if (!species || !sizes?.length) return "";
+  if (!pixelExactOf(state)) return ` — ${species.name} drawn at ${size} (exact pixels off: may look uneven)`;
+  const drawn = renderSizeFor(species, size);
+  return ` — ${species.name} is pixel art: exact sizes ${sizes.join(" / ")}, drawing ${drawn}` +
+    (drawn !== size ? " (nearest; /pet exact off for any size)" : "");
+}
+
 export default function agentmon(pi: ExtensionAPI, options: AgentMonOptions = {}): void {
   const now = options.now ?? Date.now;
   // macOS Terminal.app drops 24-bit SGR (no COLORTERM) — fall back to the
@@ -79,7 +91,7 @@ export default function agentmon(pi: ExtensionAPI, options: AgentMonOptions = {}
   const trace: TraceEntry[] = [];
   const TRACE_LIMIT = 50;
   /** Subcommands of the single /pet command (no args = full view). */
-  const PET_SUBS = ["journey", "hatch", "partners", "partner", "list", "use", "size", "renderer", "import", "ui", "rename", "debug", "help"];
+  const PET_SUBS = ["journey", "hatch", "partners", "partner", "list", "use", "size", "exact", "renderer", "import", "ui", "rename", "debug", "help"];
   /** Evolution rules register once per pack slug (imports may re-run loading). */
   const registeredRuleSlugs = new Set<string>();
 
@@ -342,7 +354,7 @@ export default function agentmon(pi: ExtensionAPI, options: AgentMonOptions = {}
 
       if (sub === "help") {
         ctx.ui?.notify?.(
-          "agentMon /pet — full view · journey: growth goals & rewards · hatch [name]: new Botamon (keeps old partners) · partners / partner <id>: collection · list / use <id>: cosmetic form override · size <16-60> · renderer <quad|half>: LCD cell packing · import <path> [name] · ui · rename <name> · debug",
+          "agentMon /pet — full view · journey: growth goals & rewards · hatch [name]: new Botamon (keeps old partners) · partners / partner <id>: collection · list / use <id>: cosmetic form override · size <16-60> · exact <on|off>: pixel art only at its exact sizes · renderer <quad|half>: LCD cell packing · import <path> [name] · ui · rename <name> · debug",
           "info",
         );
         return;
@@ -401,15 +413,23 @@ export default function agentmon(pi: ExtensionAPI, options: AgentMonOptions = {}
         const state = store.update((s) => ({ ...s, ui: { ...s.ui, petSize: n } }), now());
         display?.setSize(n);
         display?.refresh(state);
-        const pet = state.activePetId ? state.pets[state.activePetId] : undefined;
-        const species = pet ? speciesFor(pet.species) : undefined;
-        const exact = species?.pixelSizes?.length ? renderSizeFor(species, n) : undefined;
-        ctx.ui?.notify?.(
-          exact !== undefined && exact !== n
-            ? `agentMon: pet size ${n} (16-60) — ${species!.name} is pixel art, drawn pixel-exact at ${exact} (sizes ${species!.pixelSizes!.join("/")})`
-            : `agentMon: pet size ${n} (16-60)`,
-          "info",
-        );
+        ctx.ui?.notify?.(`agentMon: pet size ${n} (16-60)${pixelArtNote(state, n)}`, "info");
+        return;
+      }
+
+      if (sub === "exact") {
+        const mode = parts[1];
+        if (mode !== "on" && mode !== "off") {
+          const state = store.read(now());
+          ctx.ui?.notify?.(
+            `agentMon: exact pixels ${pixelExactOf(state) ? "on" : "off"} — /pet exact <on|off> (on: pixel-art pets draw only at their exact sizes; off: any size, pixels may be uneven)`,
+            "info",
+          );
+          return;
+        }
+        const state = store.update((s) => ({ ...s, ui: { ...s.ui, pixelExact: mode === "on" } }), now());
+        display?.refresh(state);
+        ctx.ui?.notify?.(`agentMon: exact pixels ${mode}${pixelArtNote(state, petSizeOf(state))}`, "info");
         return;
       }
 

@@ -3,7 +3,7 @@
 // 32x16 LCD at the default size.
 
 import { describe, expect, it } from "vitest";
-import { scaleRows } from "../packages/renderer/src/scale";
+import { downscaleRows, scaleRows } from "../packages/renderer/src/scale";
 import {
   PET_SIZE_DEFAULT,
   PET_SIZE_MAX,
@@ -99,16 +99,39 @@ describe("spriteBox — the play area hugs the lit pixels", () => {
     }
   });
 
-  it("pixel-art species render only at their exact sizes", () => {
+  it("pixel-art species snap to the exact size nearest by ratio", () => {
     const agumon = speciesFor("agumon");
     const [small, big] = agumon.pixelSizes!;
-    expect(renderSizeFor(agumon, 16)).toBe(small); // below the smallest: the smallest
-    expect(renderSizeFor(agumon, big! - 1)).toBe(small);
+    const cut = Math.sqrt(small! * big!); // ~30 for 21/44
+    expect(renderSizeFor(agumon, 16)).toBe(small);
+    expect(renderSizeFor(agumon, Math.floor(cut))).toBe(small);
+    expect(renderSizeFor(agumon, Math.ceil(cut))).toBe(big);
+    expect(renderSizeFor(agumon, 32)).toBe(big);
     expect(renderSizeFor(agumon, 60)).toBe(big);
     expect(poseFrame(agumon, "idle1", 60)).toHaveLength(big!);
     expect(spriteBox(agumon, 60).w).toBeLessThanOrEqual(big!);
     // everything else renders at the requested size
     expect(renderSizeFor(speciesFor("botamon"), 40)).toBe(40);
+  });
+
+  it("with exact pixels off, pixel art draws at any size, shrunk from the next layer up", () => {
+    const agumon = speciesFor("agumon");
+    expect(renderSizeFor(agumon, 32, false)).toBe(32);
+    const frame = poseFrame(agumon, "idle1", 32, false);
+    expect(frame).toHaveLength(32);
+    expect(frame.every((r) => r.length === 32)).toBe(true);
+    expect(spriteBox(agumon, 32, false).w).toBeLessThanOrEqual(32);
+    // the exact and inexact boxes are cached apart
+    expect(spriteBox(agumon, 32, true).w).not.toBe(spriteBox(agumon, 32, false).w);
+  });
+
+  it("downscaleRows keeps the majority colour of each covered block", () => {
+    // a 4x4 of 2x2 blocks halves to exactly its blocks
+    expect(downscaleRows(["aabb", "aabb", "ccdd", "ccdd"], 2)).toEqual(["ab", "cd"]);
+    // a one-pixel accent loses to its surroundings; ties prefer ink
+    expect(downscaleRows(["aaaa", "agaa", "aaaa", "aaaa"], 2)).toEqual(["aa", "aa"]);
+    expect(downscaleRows(["a.", ".."], 1)).toEqual(["."]);
+    expect(downscaleRows(["a.", "a."], 1)).toEqual(["a"]);
   });
 
   it("unionBox covers both boxes", () => {

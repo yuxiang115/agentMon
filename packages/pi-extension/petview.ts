@@ -16,6 +16,7 @@ import {
   petAreaWidth,
   petCharRows,
   petSizeOf,
+  pixelExactOf,
   poseFrame,
   spriteBox,
   truncateVisible,
@@ -70,8 +71,9 @@ class PetScreen implements Component {
     }
     this.lastSpecies = pet.species;
     const size = Math.min(petSizeOf(state), Math.max(16, width - 4)); // fit the terminal
-    const own = spriteBox(species, size);
-    const box = this.evolve ? unionBox(own, spriteBox(speciesFor(this.evolve.from), size)) : own;
+    const exact = pixelExactOf(state);
+    const own = spriteBox(species, size, exact);
+    const box = this.evolve ? unionBox(own, spriteBox(speciesFor(this.evolve.from), size, exact)) : own;
     const areaW = petAreaWidth(box.w);
     const rows = petCharRows(box.h);
     const centreX = Math.round((areaW - box.w) / 2);
@@ -81,7 +83,7 @@ class PetScreen implements Component {
     if (this.evolve) {
       const elapsed = (this.tickN - this.evolve.startTick) * this.tickMs;
       const plan = evolvePlan(elapsed);
-      const grid = evoPoseGrid(plan, speciesFor(this.evolve.from), species, pet.activity, this.tickN, size);
+      const grid = evoPoseGrid(plan, speciesFor(this.evolve.from), species, pet.activity, this.tickN, size, exact);
       if (grid) {
         lcd = renderColorScene([{ grid: cropToBox(grid, box), xLeft: centreX }], areaW, rows);
       } else {
@@ -129,7 +131,8 @@ class PetScreen implements Component {
     const hold = activity === "sleep" ? SLEEP_BEAT : HOLD;
     // two-frame idle/walk loops are [open, blink] — blink naturally
     const blink = (activity === "idle" || activity === "walk") && poseNames.length === 2;
-    const frame = pickActivityFrames(poseNames.map((p) => poseFrame(species, p, size)), this.tickN, hold, blink);
+    const exact = pixelExactOf(this.readState());
+    const frame = pickActivityFrames(poseNames.map((p) => poseFrame(species, p, size, exact)), this.tickN, hold, blink);
     const scaled = cropToBox(frame, box);
     return species.palette
       ? renderColorScene(

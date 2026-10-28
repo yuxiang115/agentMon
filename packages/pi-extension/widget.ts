@@ -24,7 +24,7 @@ import { renderScene, type ScenePlacement } from "../renderer/src/framebuffer";
 import { renderQuadColorScene, renderQuadScene } from "../renderer/src/quadblock";
 import { zzzColumn, zzzGlyphSize, zzzPhase } from "../renderer/src/zzz";
 import { roamBounds } from "../renderer/src/lcd";
-import { scaleRows } from "../renderer/src/scale";
+import { downscaleRows, scaleRows } from "../renderer/src/scale";
 import { pickActivityIndex, pickFrame, Roamer, HOLD, SLEEP_BEAT, TICK_MS, type Rng } from "../renderer/src/animation";
 import { evolvePlan, silhouetteGrid, whitenGrid, type EvoPlan } from "../renderer/src/evofx";
 
@@ -73,22 +73,37 @@ export function overlayWidthFor(spriteW: number, quad = false): number {
   return area + 4;
 }
 
+/** Pixel-art pets draw only at their exact sizes unless the user turned
+ *  that off (`/pet exact off`). */
+export function pixelExactOf(state: GameState): boolean {
+  return state.ui?.pixelExact !== false;
+}
+
 /**
  * The size a species actually renders at. Pixel art recovered on its own
- * grid only renders at its exact layers (the largest that fits the request,
- * else the smallest) — resampling between them would make art pixels
- * uneven. Everything else renders at the requested size.
+ * grid renders at its exact layer nearest the request (nearest by ratio:
+ * the cut between 21 and 44 sits at ~30) — resampling between them makes
+ * art pixels uneven. With `exact` off, and for everything else, the
+ * requested size.
  */
-export function renderSizeFor(species: SpeciesDef, size: number): number {
-  const exact = species.pixelSizes;
-  if (!exact?.length) return size;
-  return [...exact].reverse().find((n) => n <= size) ?? exact[0]!;
+export function renderSizeFor(species: SpeciesDef, size: number, exact = true): number {
+  const sizes = species.pixelSizes;
+  if (!exact || !sizes?.length) return size;
+  let best = sizes[0]!;
+  for (const n of sizes) {
+    // ties go to the larger, more detailed layer
+    if (Math.abs(Math.log(n / size)) <= Math.abs(Math.log(best / size))) best = n;
+  }
+  return best;
 }
 
 /** One pose as square rows at the species' render size for `size`. */
-export function poseFrame(species: SpeciesDef, poseName: string, size: number): string[] {
-  const n = renderSizeFor(species, size);
-  return scaleRows(poseRowsFor(species, poseName, n), n);
+export function poseFrame(species: SpeciesDef, poseName: string, size: number, exact = true): string[] {
+  const n = renderSizeFor(species, size, exact);
+  const rows = poseRowsFor(species, poseName, n);
+  // between exact pixel-art layers: shrink the next layer up by majority
+  // vote rather than dropping pixels at random
+  return species.pixelSizes && rows.length > n ? downscaleRows(rows, n) : scaleRows(rows, n);
 }
 
 /** The lit region of a species' poses at a render size, in scaled pixels. */
@@ -99,21 +114,22 @@ export interface SpriteBox {
   h: number;
 }
 
-const boxCache = new WeakMap<SpeciesDef, Map<number, SpriteBox>>();
+const boxCache = new WeakMap<SpeciesDef, Map<string, SpriteBox>>();
 
 /**
  * Union bounding box of every pose's lit pixels at `size`. One box per
  * species (not per frame), so the panel never jumps between animation
  * frames; a species with no lit pixels keeps the full square.
  */
-export function spriteBox(species: SpeciesDef, size: number): SpriteBox {
+export function spriteBox(species: SpeciesDef, size: number, exact = true): SpriteBox {
   let bySize = boxCache.get(species);
   if (!bySize) boxCache.set(species, (bySize = new Map()));
-  const hit = bySize.get(size);
+  const key = `${size}:${exact}`;
+  const hit = bySize.get(key);
   if (hit) return hit;
   let x0 = Infinity, y0 = Infinity, x1 = -1, y1 = -1;
   for (const name of Object.keys(species.poses)) {
-    poseFrame(species, name, size).forEach((row, y) => {
+    poseFrame(species, name, size, exact).forEach((row, y) => {
       for (let x = 0; x < row.length; x++) {
         if (row[x] === ".") continue;
         if (x < x0) x0 = x;
@@ -123,9 +139,9 @@ export function spriteBox(species: SpeciesDef, size: number): SpriteBox {
       }
     });
   }
-  const n = renderSizeFor(species, size);
+  const n = renderSizeFor(species, size, exact);
   const box = x1 < 0 ? { x0: 0, y0: 0, w: n, h: n } : { x0, y0, w: x1 - x0 + 1, h: y1 - y0 + 1 };
-  bySize.set(size, box);
+  bySize.set(key, box);
   return box;
 }
 
@@ -188,12 +204,13 @@ export function evoPoseGrid(
   activity: string,
   tickN: number,
   size: number,
+  exact = true,
 ): ColorGrid | null {
   if (plan.stage === "done") return null;
   const src = plan.form === "old" ? fromSpecies : toSpecies;
   const poseNames = src.roles[activity] ?? src.roles.idle;
   const hold = plan.flicker ? 2 : activity === "sleep" ? SLEEP_BEAT : HOLD;
-  const frame = pickFrame(poseNames.map((p) => poseFrame(src, p, size)), tickN, hold);
+  const frame = pickFrame(poseNames.map((p) => poseFrame(src, p, size, exact)), tickN, hold);
   const grid = speciesPoseGrid(src, frame, frame.length);
   if (plan.silhouette) {
     return silhouetteGrid(grid, plan.flashWhite ? "#ffffff" : dominantColorOf(src, frame));
@@ -275,8 +292,9 @@ export class PetOverlay implements Component {
     const pet = activePet(this.getState());
     const fallback = { x0: 0, y0: 0, w: this.size, h: this.size };
     if (!pet) return fallback;
-    const box = spriteBox(speciesFor(pet.species), this.size);
-    return this.evolve ? unionBox(box, spriteBox(speciesFor(this.evolve.from), this.size)) : box;
+    const exact = pixelExactOf(this.getState());
+    const box = spriteBox(speciesFor(pet.species), this.size, exact);
+    return this.evolve ? unionBox(box, spriteBox(speciesFor(this.evolve.from), this.size, exact)) : box;
   }
 
   /** Re-measure the box; a change (evolution, pet switch, resize) restarts
@@ -340,8 +358,9 @@ export class PetOverlay implements Component {
   ): string[] {
     const names = species.roles[pet.activity] ?? species.roles.idle;
     const index = this.poseIndex(pet, species);
-    const scaled = cropToBox(poseFrame(species, names[index] ?? names[0]!, this.size), this.box);
-    const rs = renderSizeFor(species, this.size);
+    const exact = pixelExactOf(this.getState());
+    const scaled = cropToBox(poseFrame(species, names[index] ?? names[0]!, this.size, exact), this.box);
+    const rs = renderSizeFor(species, this.size, exact);
     const roaming = pet.activity === "idle" || pet.activity === "walk";
     const x = roaming ? this.roamer.x : centreX;
     const mirror = roaming ? this.roamer.mirror : false;
@@ -507,7 +526,9 @@ export class PetOverlay implements Component {
     if (this.evolve) {
       const elapsed = (this.tickN - this.evolve.startTick) * this.tickMs;
       const plan = evolvePlan(elapsed);
-      const full = evoPoseGrid(plan, speciesFor(this.evolve.from), species, pet.activity, this.tickN, this.size);
+      const full = evoPoseGrid(
+        plan, speciesFor(this.evolve.from), species, pet.activity, this.tickN, this.size, pixelExactOf(this.getState()),
+      );
       if (full) {
         const grid = cropToBox(full, this.box);
         // quad mode renders the fx through the colour quadrant LCD too —

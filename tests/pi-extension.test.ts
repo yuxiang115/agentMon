@@ -248,6 +248,22 @@ describe("agentMon extension entry (C6: events really reach the pet)", () => {
     expect(ctx.ui.notify).toHaveBeenCalledWith(expect.stringContaining("16-60"), "warning");
   });
 
+  it("/pet exact toggles exact pixel-art sizes and persists", async () => {
+    const pi = boot();
+    const ctx = mockCtx();
+    fire(pi, "session_start", {}, ctx);
+    await pi.commands.get("pet")!.handler("use agumon", ctx);
+    await pi.commands.get("pet")!.handler("size 32", ctx);
+    expect(ctx.ui.notify).toHaveBeenLastCalledWith(expect.stringContaining("drawing 44 (nearest"), "info");
+    await pi.commands.get("pet")!.handler("exact off", ctx);
+    expect(JSON.parse(readStateFile(dir)).ui).toMatchObject({ petSize: 32, pixelExact: false });
+    expect(ctx.ui.notify).toHaveBeenLastCalledWith(expect.stringContaining("drawn at 32"), "info");
+    await pi.commands.get("pet")!.handler("exact", ctx);
+    expect(ctx.ui.notify).toHaveBeenLastCalledWith(expect.stringContaining("exact pixels off"), "info");
+    await pi.commands.get("pet")!.handler("exact on", ctx);
+    expect(JSON.parse(readStateFile(dir)).ui).toMatchObject({ pixelExact: true });
+  });
+
   it("/pet renderer switches the LCD packing and persists", async () => {
     const pi = boot();
     const ctx = mockCtx();
