@@ -13,8 +13,12 @@ import {
   petAreaWidth,
   petCharRows,
   petSizeOf,
+  cropToBox,
+  spriteBox,
+  unionBox,
 } from "../packages/pi-extension/widget";
 import { freshState } from "../packages/core/pet";
+import { poseRowsFor, speciesFor } from "../pets/registry";
 
 describe("scaleRows — nearest-neighbour pose resampling", () => {
   const pose = [
@@ -76,5 +80,26 @@ describe("pet size settings (16..60)", () => {
     expect(petSizeOf(freshState(0))).toBe(16);
     expect(petSizeOf({ ...freshState(0), ui: { petSize: 40 } })).toBe(40);
     expect(petSizeOf({ ...freshState(0), ui: { petSize: 9999 } })).toBe(60);
+  });
+});
+
+describe("spriteBox — the play area hugs the lit pixels", () => {
+  it("crops the imported Agumon's transparent margins at every size", () => {
+    const agumon = speciesFor("agumon");
+    for (const size of [16, 32, 60]) {
+      const box = spriteBox(agumon, size);
+      expect(box.w).toBeLessThan(size);
+      expect(box.h).toBeLessThan(size);
+      // every pose's lit pixels survive the crop
+      const lit = (rows: string[]) => rows.join("").replace(/\./g, "").length;
+      for (const name of Object.keys(agumon.poses)) {
+        const full = scaleRows(poseRowsFor(agumon, name, size), size);
+        expect(lit(cropToBox(full, box))).toBe(lit(full));
+      }
+    }
+  });
+
+  it("unionBox covers both boxes", () => {
+    expect(unionBox({ x0: 2, y0: 4, w: 5, h: 3 }, { x0: 4, y0: 1, w: 6, h: 2 })).toEqual({ x0: 2, y0: 1, w: 8, h: 6 });
   });
 });

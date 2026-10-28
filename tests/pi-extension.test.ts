@@ -9,7 +9,8 @@ import { join } from "node:path";
 import agentmon from "../packages/pi-extension";
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 import { PNG } from "pngjs";
-import { PetOverlay } from "../packages/pi-extension/widget";
+import { PetOverlay, spriteBox } from "../packages/pi-extension/widget";
+import { speciesFor } from "../pets/registry";
 import { addPet, createPet } from "../packages/core/pet";
 import { PetStore } from "../packages/storage/store";
 
@@ -208,7 +209,8 @@ describe("agentMon extension entry (C6: events really reach the pet)", () => {
       dispose(): void;
     };
     const lines = overlay.render(36);
-    expect(lines).toHaveLength(11); // borders + species + LCD rows (journey numbers live in the footer)
+    // borders + species + LCD rows cropped to the sprite's lit box (journey numbers live in the footer)
+    expect(lines).toHaveLength(3 + Math.ceil(spriteBox(speciesFor("botamon"), 16).h / 2));
     expect(lines[0]).toMatch(/^┌/);
     expect(lines[0]).toContain("Botamon");
     expect(lines.at(-1)).toMatch(/┘$/);
@@ -226,16 +228,17 @@ describe("agentMon extension entry (C6: events really reach the pet)", () => {
 
     await pi.commands.get("pet")!.handler("size 48", ctx);
     expect(showOverlay).toHaveBeenCalledTimes(2); // re-anchored at the new width
-    expect(showOverlay.mock.calls[1]?.[1]).toMatchObject({ width: Math.ceil((48 + 16) / 2) + 4 });
+    const box = spriteBox(speciesFor("botamon"), 48); // the play area hugs the lit pixels
+    expect(showOverlay.mock.calls[1]?.[1]).toMatchObject({ width: Math.ceil((box.w + 16) / 2) + 4 });
     expect(ctx.ui.notify).toHaveBeenCalledWith(expect.stringContaining("48"), "info");
     expect(JSON.parse(readStateFile(dir)).ui).toEqual({ petSize: 48 });
 
-    // the panel itself renders 48px of sprite = 24 terminal rows + borders
-    // (quad packs 2px per column: (48 sprite + 16 roam) / 2 + 4 chrome)
+    // the panel renders the cropped sprite: box.h px = ceil(h/2) rows + borders
+    // (quad packs 2px per column: (box.w sprite + 16 roam) / 2 + 4 chrome)
     const overlay = showOverlay.mock.calls[0]?.[0] as unknown as { render(w: number): string[] };
     const lines = overlay.render(100);
-    expect(lines).toHaveLength(24 + 3); // LCD rows + borders + species line
-    expect(lines[0]!.length).toBe(Math.ceil((48 + 16) / 2) + 4);
+    expect(lines).toHaveLength(Math.ceil(box.h / 2) + 3); // LCD rows + borders + species line
+    expect(lines[0]!.length).toBe(Math.ceil((box.w + 16) / 2) + 4);
 
     // out-of-range clamps instead of erroring
     await pi.commands.get("pet")!.handler("size 500", ctx);

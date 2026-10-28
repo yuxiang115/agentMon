@@ -5,8 +5,9 @@
 // keeps full keyboard focus underneath.
 //
 // Pet size: poses are authored 16x16 and rendered at `size` pixels
-// (16..60, `/pet size`); the sprite keeps 16px of walking room beside it,
-// so the default (16) is exactly the classic 32x16 LCD.
+// (16..60, `/pet size`), then cropped to the species' sprite box (the union
+// of every pose's lit pixels — imported packs carry wide transparent
+// margins). The sprite keeps 16px of walking room beside it.
 //
 // Renderer: quadrant blocks (default, 2x2 px per cell — the same pixel grid
 // at half the terminal width) or the classic half-block LCD (`/pet renderer`).
@@ -57,19 +58,73 @@ export function clampPetSize(n: number): number {
 }
 
 /** The pet's play area: the sprite plus 16px of walking room (32-wide at 16). */
-export function petAreaWidth(size: number): number {
-  return size + 16;
+export function petAreaWidth(spriteW: number): number {
+  return spriteW + 16;
 }
 
 /** Terminal rows the play area occupies (two pixels per row). */
-export function petCharRows(size: number): number {
-  return Math.ceil(size / 2);
+export function petCharRows(spriteH: number): number {
+  return Math.ceil(spriteH / 2);
 }
 
 /** border + padding + play area + padding + border; quad packs 2 px per col */
-export function overlayWidthFor(size: number, quad = false): number {
-  const area = quad ? Math.ceil(petAreaWidth(size) / 2) : petAreaWidth(size);
+export function overlayWidthFor(spriteW: number, quad = false): number {
+  const area = quad ? Math.ceil(petAreaWidth(spriteW) / 2) : petAreaWidth(spriteW);
   return area + 4;
+}
+
+/** The lit region of a species' poses at a render size, in scaled pixels. */
+export interface SpriteBox {
+  x0: number;
+  y0: number;
+  w: number;
+  h: number;
+}
+
+const boxCache = new WeakMap<SpeciesDef, Map<number, SpriteBox>>();
+
+/**
+ * Union bounding box of every pose's lit pixels at `size`. One box per
+ * species (not per frame), so the panel never jumps between animation
+ * frames; a species with no lit pixels keeps the full square.
+ */
+export function spriteBox(species: SpeciesDef, size: number): SpriteBox {
+  let bySize = boxCache.get(species);
+  if (!bySize) boxCache.set(species, (bySize = new Map()));
+  const hit = bySize.get(size);
+  if (hit) return hit;
+  let x0 = Infinity, y0 = Infinity, x1 = -1, y1 = -1;
+  for (const name of Object.keys(species.poses)) {
+    scaleRows(poseRowsFor(species, name, size), size).forEach((row, y) => {
+      for (let x = 0; x < row.length; x++) {
+        if (row[x] === ".") continue;
+        if (x < x0) x0 = x;
+        if (x > x1) x1 = x;
+        if (y < y0) y0 = y;
+        if (y > y1) y1 = y;
+      }
+    });
+  }
+  const box = x1 < 0 ? { x0: 0, y0: 0, w: size, h: size } : { x0, y0, w: x1 - x0 + 1, h: y1 - y0 + 1 };
+  bySize.set(size, box);
+  return box;
+}
+
+/** The smallest box holding both (evolution fx draws either form). */
+export function unionBox(a: SpriteBox, b: SpriteBox): SpriteBox {
+  const x0 = Math.min(a.x0, b.x0);
+  const y0 = Math.min(a.y0, b.y0);
+  return {
+    x0,
+    y0,
+    w: Math.max(a.x0 + a.w, b.x0 + b.w) - x0,
+    h: Math.max(a.y0 + a.h, b.y0 + b.h) - y0,
+  };
+}
+
+/** Cut a scaled frame (char rows or a colour grid) down to its sprite box. */
+export function cropToBox<T extends string | readonly unknown[]>(rows: readonly T[], box: SpriteBox): T[] {
+  return rows.slice(box.y0, box.y0 + box.h).map((r) => r.slice(box.x0, box.x0 + box.w) as T);
 }
 
 /** The active pet size from persisted display settings. */
@@ -161,6 +216,8 @@ export class PetOverlay implements Component {
   private timer: ReturnType<typeof setInterval> | undefined;
   private tickN = 0;
   private size: number;
+  /** Lit region of the current species' poses — the play area's sprite. */
+  private box: SpriteBox;
   private readonly rng: Rng;
   private readonly tickMs: number;
   private renderer: RendererMode;
@@ -172,6 +229,8 @@ export class PetOverlay implements Component {
   private evolve?: { from: string; startTick: number };
   private reward?: { message: string; startTick: number };
   private petId: string | null;
+  /** Called when the sprite box's width changes — the panel must re-anchor. */
+  onWidthChange?: () => void;
 
   constructor(
     private tui: OverlayTuiLike,
@@ -186,18 +245,40 @@ export class PetOverlay implements Component {
     this.rng = rng;
     this.tickMs = tickMs;
     this.petId = getState().activePetId;
+    this.box = this.currentBox();
     this.roamer = this.makeRoamer();
-    const [minX, maxX] = this.bounds();
-    this.timer = setInterval(() => this.tick(minX, maxX), tickMs);
+    this.timer = setInterval(() => this.tick(), tickMs);
+  }
+
+  /** The sprite box of what's on screen: the active species, unioned with
+   *  the old form while an evolution fx can still draw it. */
+  private currentBox(): SpriteBox {
+    const pet = activePet(this.getState());
+    const fallback = { x0: 0, y0: 0, w: this.size, h: this.size };
+    if (!pet) return fallback;
+    const box = spriteBox(speciesFor(pet.species), this.size);
+    return this.evolve ? unionBox(box, spriteBox(speciesFor(this.evolve.from), this.size)) : box;
+  }
+
+  /** Re-measure the box; a change (evolution, pet switch, resize) restarts
+   *  the roamer, since its play area changed. */
+  private syncBox(): void {
+    const box = this.currentBox();
+    if (box.w === this.box.w && box.h === this.box.h && box.x0 === this.box.x0 && box.y0 === this.box.y0) return;
+    const widthChanged = box.w !== this.box.w;
+    this.box = box;
+    this.roamer = this.makeRoamer();
+    if (widthChanged) this.onWidthChange?.();
+  }
+
+  /** Panel width for the current sprite box — the caller anchors with it. */
+  overlayWidth(): number {
+    return overlayWidthFor(this.currentBox().w, this.wantsQuad());
   }
 
   private makeRoamer(): Roamer {
-    // start centred; the sprite is `size` wide in a size+16 play area
-    return new Roamer(8, petAreaWidth(this.size), this.size, this.rng);
-  }
-
-  private bounds(): [number, number] {
-    return roamBounds(this.size, petAreaWidth(this.size));
+    // start centred; the sprite is box.w wide in a box.w+16 play area
+    return new Roamer(8, petAreaWidth(this.box.w), this.box.w, this.rng);
   }
 
   /** Everything the screen can show right now, hashed into one string. */
@@ -240,7 +321,7 @@ export class PetOverlay implements Component {
   ): string[] {
     const names = species.roles[pet.activity] ?? species.roles.idle;
     const index = this.poseIndex(pet, species);
-    const scaled = scaleRows(poseRowsFor(species, names[index] ?? names[0]!, this.size), this.size);
+    const scaled = cropToBox(scaleRows(poseRowsFor(species, names[index] ?? names[0]!, this.size), this.size), this.box);
     const roaming = pet.activity === "idle" || pet.activity === "walk";
     const x = roaming ? this.roamer.x : centreX;
     const mirror = roaming ? this.roamer.mirror : false;
@@ -252,7 +333,7 @@ export class PetOverlay implements Component {
     if (this.renderer === "quad") {
       if (species.palette) {
         const grids: ColorPlacement[] = [
-          { grid: poseToColorGrid(scaled, species.palette, this.size), xLeft: x, mirror },
+          { grid: poseToColorGrid(scaled, species.palette, scaled.length), xLeft: x, mirror },
         ];
         if (z) grids.push({ grid: z.map((r) => [...r].map((c) => (c === "." ? null : "#8a8f94"))), xLeft: zx });
         return renderQuadColorScene(grids, Math.ceil(areaW / 2), rows);
@@ -263,7 +344,7 @@ export class PetOverlay implements Component {
     }
     if (species.palette) {
       const grids: ColorPlacement[] = [
-        { grid: poseToColorGrid(scaled, species.palette, this.size), xLeft: x, mirror },
+        { grid: poseToColorGrid(scaled, species.palette, scaled.length), xLeft: x, mirror },
       ];
       if (z) grids.push({ grid: z.map((r) => [...r].map((c) => (c === "." ? null : "#8a8f94"))), xLeft: zx });
       return renderColorScene(grids, areaW, rows);
@@ -276,6 +357,7 @@ export class PetOverlay implements Component {
   /** Live-resize the sprite (16..60). Caller re-anchors the overlay. */
   setSize(n: number): void {
     this.size = clampPetSize(n);
+    this.box = this.currentBox();
     this.roamer = this.makeRoamer(); // restart centred
     this.tui.requestRender();
   }
@@ -301,6 +383,7 @@ export class PetOverlay implements Component {
   /** Start the evolution transform (from the species the pet used to be). */
   startEvolve(fromId: string): void {
     this.evolve = { from: fromId, startTick: this.tickN };
+    this.syncBox(); // the fx draws both forms — widen to hold either
     this.tui.requestRender();
   }
 
@@ -309,11 +392,18 @@ export class PetOverlay implements Component {
     this.requestRender();
   }
 
-  private tick(minX: number, maxX: number): void {
+  private tick(): void {
     if (this.hidden) return;
     this.tickN++;
+    if (this.evolve && evolvePlan((this.tickN - this.evolve.startTick) * this.tickMs).stage === "done") {
+      this.evolve = undefined;
+    }
+    // box changes land here, never inside render(): re-anchoring hides and
+    // re-shows the overlay
+    this.syncBox();
     const pet = activePet(this.getState());
     if (pet && (pet.activity === "idle" || pet.activity === "walk")) {
+      const [minX, maxX] = roamBounds(this.box.w, petAreaWidth(this.box.w));
       this.roamer.step(minX, maxX);
     }
     // Repaint only when the visible frame can change: pose switch, blink,
@@ -339,11 +429,12 @@ export class PetOverlay implements Component {
       this.evolve = undefined;
       this.roamer = this.makeRoamer();
     }
+    this.syncBox(); // a species change (same pet) can resize the sprite
     this.requestRender();
   }
 
   private panel(lcd: string[], title: string, width: number, quad = false): string[] {
-    const w = Math.min(width, overlayWidthFor(this.size, quad));
+    const w = Math.min(width, overlayWidthFor(this.box.w, quad));
     if (w < 5) return [];
     const inner = w - 2;
     const heading = truncateVisible(title, inner - 1);
@@ -380,17 +471,18 @@ export class PetOverlay implements Component {
     if (!pet) return [];
     const species = speciesFor(pet.species);
     const quad = this.renderer === "quad";
-    const areaW = petAreaWidth(this.size);
-    const rows = petCharRows(this.size);
-    const centreX = Math.round((areaW - this.size) / 2);
+    const areaW = petAreaWidth(this.box.w);
+    const rows = petCharRows(this.box.h);
+    const centreX = Math.round((areaW - this.box.w) / 2);
     const title = ` ${pet.name} `;
 
     // evolution fx overrides the normal frame until it completes
     if (this.evolve) {
       const elapsed = (this.tickN - this.evolve.startTick) * this.tickMs;
       const plan = evolvePlan(elapsed);
-      const grid = evoPoseGrid(plan, speciesFor(this.evolve.from), species, pet.activity, this.tickN, this.size);
-      if (grid) {
+      const full = evoPoseGrid(plan, speciesFor(this.evolve.from), species, pet.activity, this.tickN, this.size);
+      if (full) {
+        const grid = cropToBox(full, this.box);
         // quad mode renders the fx through the colour quadrant LCD too —
         // mono grids are single-colour, so they pack losslessly
         let lcd: string[];
@@ -456,33 +548,36 @@ export function installPetDisplay(
   let overlayTui: OverlayTuiLike | undefined;
   let hidden = false;
   let curSize = clampPetSize(opts.size ?? PET_SIZE_DEFAULT);
-  let anchorQuad = false;
+  let anchorWidth = 0;
 
-  function show(tui: OverlayTuiLike, size: number, quad: boolean): void {
+  function show(tui: OverlayTuiLike): void {
+    anchorWidth = overlay!.overlayWidth();
     handle = tui.showOverlay(overlay!, {
       nonCapturing: true,
       anchor: "top-right",
-      width: overlayWidthFor(size, quad),
+      width: anchorWidth,
       margin: { top: 1, right: 1 },
     });
-    anchorQuad = quad;
     handle.setHidden(hidden); // preserve a user toggle across resizes
   }
 
   /** pi-tui reads options.width only at show time — re-anchor the same
    *  component (public API: hide + showOverlay again), e.g. after a size or
-   *  renderer change, or when a palette pet needs the wide half-block LCD. */
+   *  renderer change, or when the sprite box changes (evolution, pet switch). */
   function reanchor(): void {
     if (!overlay || !overlayTui) return;
     handle?.hide();
     handle = undefined;
-    show(overlayTui, curSize, overlay.wantsQuad());
+    show(overlayTui);
   }
 
   ctx.ui.setWidget("agentmon-bridge", (tui: TUI, _theme) => {
     overlayTui = tui as unknown as OverlayTuiLike;
     overlay = new PetOverlay(overlayTui, readState, opts.tickMs ?? TICK_MS, opts.rng, curSize, opts.renderer ?? RENDERER_DEFAULT);
-    show(overlayTui, curSize, overlay.wantsQuad());
+    overlay.onWidthChange = () => {
+      if (overlay && overlay.overlayWidth() !== anchorWidth) reanchor();
+    };
+    show(overlayTui);
     // the bridge itself renders nothing — the overlay is what users see
     return { render: () => [], invalidate: () => {} };
   });
@@ -490,8 +585,7 @@ export function installPetDisplay(
   return {
     refresh(state: GameState) {
       overlay?.refresh(state);
-      // switching to/from a palette (image-imported) pet flips the packing
-      if (overlay && overlay.wantsQuad() !== anchorQuad) reanchor();
+      if (overlay && overlay.overlayWidth() !== anchorWidth) reanchor();
     },
     toggle() {
       if (!handle) return false;

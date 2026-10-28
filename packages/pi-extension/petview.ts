@@ -11,7 +11,17 @@ import { renderScreen } from "../renderer/src/framebuffer";
 import { scaleRows } from "../renderer/src/scale";
 import { pickActivityFrames, HOLD, SLEEP_BEAT, TICK_MS } from "../renderer/src/animation";
 import { evolvePlan } from "../renderer/src/evofx";
-import { evoPoseGrid, petAreaWidth, petCharRows, petSizeOf, truncateVisible } from "./widget";
+import {
+  cropToBox,
+  evoPoseGrid,
+  petAreaWidth,
+  petCharRows,
+  petSizeOf,
+  spriteBox,
+  truncateVisible,
+  unionBox,
+  type SpriteBox,
+} from "./widget";
 import { evolutionLines, journalLines, taskLine, xpLine } from "./growth";
 
 export interface PetViewOptions {
@@ -60,9 +70,11 @@ class PetScreen implements Component {
     }
     this.lastSpecies = pet.species;
     const size = Math.min(petSizeOf(state), Math.max(16, width - 4)); // fit the terminal
-    const areaW = petAreaWidth(size);
-    const rows = petCharRows(size);
-    const centreX = Math.round((areaW - size) / 2);
+    const own = spriteBox(species, size);
+    const box = this.evolve ? unionBox(own, spriteBox(speciesFor(this.evolve.from), size)) : own;
+    const areaW = petAreaWidth(box.w);
+    const rows = petCharRows(box.h);
+    const centreX = Math.round((areaW - box.w) / 2);
 
     // evolution fx: the transform replaces the normal LCD until it ends
     let lcd: string[];
@@ -71,13 +83,13 @@ class PetScreen implements Component {
       const plan = evolvePlan(elapsed);
       const grid = evoPoseGrid(plan, speciesFor(this.evolve.from), species, pet.activity, this.tickN, size);
       if (grid) {
-        lcd = renderColorScene([{ grid, xLeft: centreX }], areaW, rows);
+        lcd = renderColorScene([{ grid: cropToBox(grid, box), xLeft: centreX }], areaW, rows);
       } else {
         this.evolve = undefined;
-        lcd = this.normalLcd(pet.activity, species, size, areaW, rows, centreX);
+        lcd = this.normalLcd(pet.activity, species, size, box, areaW, rows, centreX);
       }
     } else {
-      lcd = this.normalLcd(pet.activity, species, size, areaW, rows, centreX);
+      lcd = this.normalLcd(pet.activity, species, size, box, areaW, rows, centreX);
     }
     const c = pet.counters;
     const ageH = (pet.ageMs / 3_600_000).toFixed(1);
@@ -108,6 +120,7 @@ class PetScreen implements Component {
     activity: string,
     species: ReturnType<typeof speciesFor>,
     size: number,
+    box: SpriteBox,
     areaW: number,
     rows: number,
     centreX: number,
@@ -117,10 +130,10 @@ class PetScreen implements Component {
     // two-frame idle/walk loops are [open, blink] — blink naturally
     const blink = (activity === "idle" || activity === "walk") && poseNames.length === 2;
     const frame = pickActivityFrames(poseNames.map((p) => poseRowsFor(species, p, size)), this.tickN, hold, blink);
-    const scaled = scaleRows(frame, size);
+    const scaled = cropToBox(scaleRows(frame, size), box);
     return species.palette
       ? renderColorScene(
-          [{ grid: poseToColorGrid(scaled, species.palette, size), xLeft: centreX }],
+          [{ grid: poseToColorGrid(scaled, species.palette, scaled.length), xLeft: centreX }],
           areaW,
           rows,
         )
