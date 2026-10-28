@@ -40,11 +40,16 @@ export function colorModeNow(): ColorMode {
 }
 
 /**
- * Detect what the terminal actually supports. AGENTMON_COLOR=256|trueforce
- * an override; otherwise COLORTERM (truecolor/24bit) or a TERM advertising
- * direct colour keeps 24-bit, and everything else gets the 256 palette.
+ * Detect what the terminal actually supports. AGENTMON_COLOR=256|true forces
+ * an override; otherwise COLORTERM (truecolor/24bit), a TERM advertising
+ * direct colour, or a known truecolor terminal keeps 24-bit. Windows
+ * Terminal and modern Windows consoles never set COLORTERM but do 24-bit;
+ * macOS Terminal.app (TERM_PROGRAM=Apple_Terminal) gets the 256 palette.
  */
-export function detectColorMode(env: NodeJS.ProcessEnv = process.env): ColorMode {
+export function detectColorMode(
+  env: NodeJS.ProcessEnv = process.env,
+  platform: NodeJS.Platform = process.platform,
+): ColorMode {
   const forced = (env.AGENTMON_COLOR ?? "").toLowerCase();
   if (forced === "256") return "256";
   if (forced === "true") return "true";
@@ -52,6 +57,18 @@ export function detectColorMode(env: NodeJS.ProcessEnv = process.env): ColorMode
   if (colorterm.includes("truecolor") || colorterm.includes("24bit")) return "true";
   const term = (env.TERM ?? "").toLowerCase();
   if (term.includes("truecolor") || term.includes("direct")) return "true";
+  // tmux/screen only pass 24-bit through when COLORTERM says so (above)
+  if (env.TMUX || term.startsWith("tmux") || term.startsWith("screen")) return "256";
+  const program = (env.TERM_PROGRAM ?? "").toLowerCase();
+  if (program === "apple_terminal") return "256";
+  if (
+    env.WT_SESSION || env.KITTY_WINDOW_ID || env.WEZTERM_PANE || env.ITERM_SESSION_ID ||
+    env.GHOSTTY_RESOURCES_DIR || term.includes("ghostty") || term.includes("kitty") ||
+    ["iterm.app", "ghostty", "wezterm", "kitty", "vscode", "alacritty", "warpterminal", "zed"].includes(program)
+  ) {
+    return "true";
+  }
+  if (platform === "win32") return "true"; // conhost/Windows Terminal: 24-bit since Win10
   return "256";
 }
 
@@ -76,9 +93,11 @@ export function quantize256(hex: string): number {
   const cached = quantCache.get(hex);
   if (cached !== undefined) return cached;
   const [r, g, b] = hexToRgb(hex);
-  let best = 0;
+  let best = 16;
   let bestD = Infinity;
-  for (let i = 0; i < XTERM_256.length; i++) {
+  // indices 0-15 are themeable (a "red" may be any colour), so only the
+  // fixed colour cube and grey ramp are candidates
+  for (let i = 16; i < XTERM_256.length; i++) {
     const [pr, pg, pb] = XTERM_256[i]!;
     const d = (r - pr) ** 2 + (g - pg) ** 2 + (b - pb) ** 2;
     if (d < bestD) {

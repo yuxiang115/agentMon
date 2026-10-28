@@ -205,6 +205,18 @@ function parseSpecies(
     }
     if (!Object.keys(hiPoses).length) hiPoses = undefined;
   }
+  let pixelSizes: number[] | undefined;
+  if (s.pixelSizes !== undefined) {
+    const raw = s.pixelSizes;
+    if (
+      !Array.isArray(raw) || !raw.length ||
+      !raw.every((n) => Number.isInteger(n) && (n === 16 || hiPoses?.[String(n)]))
+    ) {
+      errors.push(`${context}/${id}: pixelSizes must list 16 and/or hiPoses layer sizes`);
+      return null;
+    }
+    pixelSizes = [...(raw as number[])].sort((a, b) => a - b);
+  }
   return {
     id,
     name,
@@ -215,6 +227,7 @@ function parseSpecies(
     poses,
     roles,
     hiPoses,
+    ...(pixelSizes ? { pixelSizes } : {}),
   };
 }
 

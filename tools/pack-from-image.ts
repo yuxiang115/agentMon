@@ -71,6 +71,7 @@ let roles: Record<string, string[]> | undefined;
 let ink: string | undefined;
 let palette: Record<string, string> | undefined;
 let hiPoses: Record<string, Record<string, string[]>> | undefined;
+let pixelSizes: number[] | undefined;
 let folder: ReturnType<typeof posesFromFolder> | undefined;
 try {
   let entries: Dirent[] | null = null;
@@ -92,6 +93,8 @@ try {
     ink = folder.ink;
     palette = folder.palette;
     hiPoses = folder.hiPoses;
+    pixelSizes = folder.pixelSizes;
+    if (pixelSizes) console.log(`pixel art: recovered the art grid — exact sizes ${pixelSizes.join("/")}`);
     console.log(
       `pose folder (${mono ? "mono" : "colour"}): ` +
         Object.entries(folder.counts)
@@ -123,6 +126,7 @@ try {
         poses = layered.poses;
         palette = layered.palette;
         hiPoses = layered.hiPoses;
+        pixelSizes = layered.pixelSizes;
         console.log(
           `single image: colour, ${Object.keys(palette).length} colours, 11 poses auto-derived (bounces/mirror) + hi-res layers`,
         );
@@ -157,6 +161,7 @@ const pack = buildImagePack(poses, {
   ink,
   palette,
   hiPoses,
+  pixelSizes,
 });
 if (palette) {
   const sp = (pack.species as Array<Record<string, unknown>>)[0]!;
@@ -182,7 +187,7 @@ const sample = poses[sampleKey]!.join("");
 const filled = sample.split("").filter((c) => c !== ".").length;
 console.log(`wrote ${file}`);
 console.log(`  species ${id} (${filled} filled pixels in ${sampleKey}), validation OK`);
-console.log(`next: in pi run /pet import "${file}" (or /reload), then /pet use ${id} and /pet size 40`);
+console.log(`next: in pi run /pet import "${file}" (or /reload), then /pet use ${id} and /pet size ${pixelSizes?.at(-1) ?? 40}`);
 if (basename(imgArg).toLowerCase().includes("agumon") || /digimon|agumon/i.test(name)) {
   console.log(`reminder: Digimon designs are © Bandai — keep this pack local, never commit it.`);
 }

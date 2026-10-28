@@ -18,6 +18,8 @@ export { applyPalette, buildPaletteFromHexGrids, paletteFromHexGrids, pngToHexGr
 import { readFileSync, readdirSync } from "node:fs";
 import { POSE_NAMES, type PoseName } from "./registry";
 import { DEFAULT_TUIPET_POSE_MAP, slugify } from "./convert";
+import { extractPixelArt, type PixelArtLayer } from "./pixelgrid";
+import { scaleRows } from "../packages/renderer/src/scale";
 
 export const CONTENT_ROWS = 16;
 
@@ -163,12 +165,21 @@ export function autoPoses(base: string[]): Record<PoseName, string[]> {
  */
 export function pngToPosesLayers(
   png: PNG,
-  opts: ColorExtractOptions = {},
+  opts: ColorExtractOptions & { pixelGrid?: boolean } = {},
 ): {
   poses: Record<PoseName, string[]>;
   palette: Record<string, string>;
   hiPoses: Record<string, Record<string, string[]>>;
+  pixelSizes?: number[];
 } {
+  if (opts.pixelGrid !== false) {
+    const art = pixelArtLayers([png], opts.threshold);
+    if (art) {
+      const hiPoses: Record<string, Record<string, string[]>> = {};
+      for (const [size, frames] of Object.entries(art.layers)) hiPoses[size] = autoPoses(frames[0]!);
+      return { poses: autoPoses(art.base[0]!), palette: art.palette, hiPoses, pixelSizes: art.pixelSizes };
+    }
+  }
   const image = prepareImage(png, opts.threshold);
   const base = sampleImage(image, { ...opts, size: 16 });
   const layers = HI_LAYERS.map((size) => sampleImage(image, { ...opts, size }));
@@ -249,6 +260,8 @@ export interface ImagePackOptions {
   palette?: Record<string, string>;
   /** Hi-res pose layers ({"32", "64"}) — /pet size above 16 gains detail. */
   hiPoses?: Record<string, Record<string, string[]>>;
+  /** Exact render sizes (pixel-art layers): the renderer snaps to these. */
+  pixelSizes?: number[];
 }
 
 export function buildImagePack(
@@ -267,6 +280,7 @@ export function buildImagePack(
   if (opts.palette) species.palette = opts.palette;
   else if (opts.ink) species.ink = opts.ink;
   if (opts.hiPoses) species.hiPoses = opts.hiPoses;
+  if (opts.pixelSizes?.length) species.pixelSizes = opts.pixelSizes;
   const pack: Record<string, unknown> = {
     name: `${opts.name} pack`,
     species: [species],
@@ -334,12 +348,49 @@ export interface FolderPosesResult {
   palette?: Record<string, string>;
   /** Hi-res layers ({"32": poses, "64": poses}), colour mode from images. */
   hiPoses?: Record<string, Record<string, string[]>>;
+  /** Exact render sizes when the images were upscaled pixel art. */
+  pixelSizes?: number[];
   error?: string;
 }
 
 /** Hi-res layers extracted from source images — /pet size gains real detail. */
 export const HI_LAYERS = [24, 32, 40, 48, 60, 64] as const;
 export const IMAGE_RECOMMENDED_SIZE = 40;
+
+/**
+ * Upscaled pixel art -> its exact layers as palette-indexed rows: the
+ * art-grid layers (keyed by size, they render pixel-for-pixel) plus the
+ * 16x16 base the pack format requires (a nearest-neighbour fallback that
+ * the renderer never picks, since `pixelSizes` snaps to the exact layers).
+ */
+export function pixelArtLayers(
+  pngs: readonly PNG[],
+  threshold?: number,
+): { base: string[][]; layers: Record<string, string[][]>; palette: Record<string, string>; pixelSizes: number[] } | null {
+  const art = extractPixelArt(pngs, { threshold });
+  if (!art || art.palette.length > PALETTE_LIMIT) return null;
+  const palette = Object.fromEntries(art.palette.map((hex, i) => [PALETTE_KEYS[i]!, hex]));
+  const index = (layer: PixelArtLayer) => applyPalette(layer.frames, palette);
+  const layers: Record<string, string[][]> = {};
+  for (const layer of art.layers) layers[String(layer.size)] = index(layer);
+  const coarse = layers[String(art.layers[0]!.size)]!;
+  return {
+    base: coarse.map(baseFrom),
+    layers,
+    palette,
+    pixelSizes: art.layers.map((l) => l.size),
+  };
+}
+
+/** The 16x16 base: the art fitted into 14 rows, feet clear of the bottom
+ *  two rows like every built-in sprite. */
+function baseFrom(rows: string[]): string[] {
+  const blank = ".".repeat(16);
+  return [...scaleRows(rows, 14).map((r) => `.${r}.`), blank, blank];
+}
+
+const PALETTE_KEYS = "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789@%";
+const PALETTE_LIMIT = PALETTE_KEYS.length;
 
 /**
  * Build poses + roles from a folder of activity-named images. `idle` is
@@ -350,7 +401,7 @@ export const IMAGE_RECOMMENDED_SIZE = 40;
  */
 export function posesFromFolder(
   dir: string,
-  opts: ColorExtractOptions & { color?: boolean; alignment?: "shared" | "individual" } = {},
+  opts: ColorExtractOptions & { color?: boolean; alignment?: "shared" | "individual"; pixelGrid?: boolean } = {},
 ): FolderPosesResult {
   const files = readdirSync(dir).filter((f) => /\.(png|jpe?g)$/i.test(f));
   const color = opts.color ?? true;
@@ -369,6 +420,34 @@ export function posesFromFolder(
   const dimensions = new Set([...sources.values()].map((p) => `${p.width}x${p.height}`));
   const viewport = opts.viewport ?? (opts.alignment !== "individual" && dimensions.size === 1
     ? sharedViewport([...images.values()]) : undefined);
+
+  // Upscaled pixel art (same-sized frames on one canvas): recover the art's
+  // own grid instead of resampling — exact pixels at exact sizes.
+  if (color && opts.pixelGrid !== false && dimensions.size === 1 && sourceFiles.length) {
+    const art = pixelArtLayers(sourceFiles.map((f) => sources.get(f)!), opts.threshold);
+    if (art) {
+      const hiPoses: Record<string, Record<string, string[]>> = {};
+      for (const size of Object.keys(art.layers)) hiPoses[size] = {};
+      let i = 0;
+      for (const activity of ACTIVITIES) {
+        const keys = collectActivityFiles(files, activity).map((_, n) => `${activity}${n + 1}`);
+        if (!keys.length) continue;
+        for (const key of keys) {
+          poses[key] = art.base[i]!;
+          for (const [size, frames] of Object.entries(art.layers)) hiPoses[size]![key] = frames[i]!;
+          i++;
+        }
+        roles[activity] = keys;
+        counts[activity] = keys.length;
+      }
+      if (!roles.idle) {
+        return { poses, roles, counts, error: "folder needs at least idle1.png (or idle.png / idleA.png)" };
+      }
+      roles.walk = roles.idle;
+      for (const activity of ACTIVITIES) roles[activity] ??= roles.idle;
+      return { poses, roles, counts, palette: art.palette, hiPoses, pixelSizes: art.pixelSizes };
+    }
+  }
 
   for (const activity of ACTIVITIES) {
     const activityFiles = collectActivityFiles(files, activity);

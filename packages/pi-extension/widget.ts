@@ -73,6 +73,24 @@ export function overlayWidthFor(spriteW: number, quad = false): number {
   return area + 4;
 }
 
+/**
+ * The size a species actually renders at. Pixel art recovered on its own
+ * grid only renders at its exact layers (the largest that fits the request,
+ * else the smallest) — resampling between them would make art pixels
+ * uneven. Everything else renders at the requested size.
+ */
+export function renderSizeFor(species: SpeciesDef, size: number): number {
+  const exact = species.pixelSizes;
+  if (!exact?.length) return size;
+  return [...exact].reverse().find((n) => n <= size) ?? exact[0]!;
+}
+
+/** One pose as square rows at the species' render size for `size`. */
+export function poseFrame(species: SpeciesDef, poseName: string, size: number): string[] {
+  const n = renderSizeFor(species, size);
+  return scaleRows(poseRowsFor(species, poseName, n), n);
+}
+
 /** The lit region of a species' poses at a render size, in scaled pixels. */
 export interface SpriteBox {
   x0: number;
@@ -95,7 +113,7 @@ export function spriteBox(species: SpeciesDef, size: number): SpriteBox {
   if (hit) return hit;
   let x0 = Infinity, y0 = Infinity, x1 = -1, y1 = -1;
   for (const name of Object.keys(species.poses)) {
-    scaleRows(poseRowsFor(species, name, size), size).forEach((row, y) => {
+    poseFrame(species, name, size).forEach((row, y) => {
       for (let x = 0; x < row.length; x++) {
         if (row[x] === ".") continue;
         if (x < x0) x0 = x;
@@ -105,7 +123,8 @@ export function spriteBox(species: SpeciesDef, size: number): SpriteBox {
       }
     });
   }
-  const box = x1 < 0 ? { x0: 0, y0: 0, w: size, h: size } : { x0, y0, w: x1 - x0 + 1, h: y1 - y0 + 1 };
+  const n = renderSizeFor(species, size);
+  const box = x1 < 0 ? { x0: 0, y0: 0, w: n, h: n } : { x0, y0, w: x1 - x0 + 1, h: y1 - y0 + 1 };
   bySize.set(size, box);
   return box;
 }
@@ -174,8 +193,8 @@ export function evoPoseGrid(
   const src = plan.form === "old" ? fromSpecies : toSpecies;
   const poseNames = src.roles[activity] ?? src.roles.idle;
   const hold = plan.flicker ? 2 : activity === "sleep" ? SLEEP_BEAT : HOLD;
-  const frame = pickFrame(poseNames.map((p) => poseRowsFor(src, p, size)), tickN, hold);
-  const grid = speciesPoseGrid(src, scaleRows(frame, size), size);
+  const frame = pickFrame(poseNames.map((p) => poseFrame(src, p, size)), tickN, hold);
+  const grid = speciesPoseGrid(src, frame, frame.length);
   if (plan.silhouette) {
     return silhouetteGrid(grid, plan.flashWhite ? "#ffffff" : dominantColorOf(src, frame));
   }
@@ -321,16 +340,17 @@ export class PetOverlay implements Component {
   ): string[] {
     const names = species.roles[pet.activity] ?? species.roles.idle;
     const index = this.poseIndex(pet, species);
-    const scaled = cropToBox(scaleRows(poseRowsFor(species, names[index] ?? names[0]!, this.size), this.size), this.box);
+    const scaled = cropToBox(poseFrame(species, names[index] ?? names[0]!, this.size), this.box);
+    const rs = renderSizeFor(species, this.size);
     const roaming = pet.activity === "idle" || pet.activity === "walk";
     const x = roaming ? this.roamer.x : centreX;
     const mirror = roaming ? this.roamer.mirror : false;
     const ink = species.ink ?? "#2b2e31";
     const sleeping = pet.activity === "sleep";
-    const z = sleeping ? zzzColumn(this.size, zzzPhase(this.tickN), rows * 2) : undefined;
-    const zx = areaW - zzzGlyphSize(this.size) - 1;
+    const z = sleeping ? zzzColumn(rs, zzzPhase(this.tickN), rows * 2) : undefined;
+    const zx = areaW - zzzGlyphSize(rs) - 1;
 
-    if (this.renderer === "quad") {
+    if (this.quadFor(species)) {
       if (species.palette) {
         const grids: ColorPlacement[] = [
           { grid: poseToColorGrid(scaled, species.palette, scaled.length), xLeft: x, mirror },
@@ -370,7 +390,14 @@ export class PetOverlay implements Component {
 
   /** True when the current pet renders through the quadrant LCD. */
   wantsQuad(): boolean {
-    return this.renderer === "quad";
+    const pet = activePet(this.getState());
+    return pet ? this.quadFor(speciesFor(pet.species)) : this.renderer === "quad";
+  }
+
+  /** Colour pets always render half-block: a quadrant cell holds only two
+   *  colours (detail folds away) and its 2x2 pixels aren't square. */
+  private quadFor(species: SpeciesDef): boolean {
+    return this.renderer === "quad" && !species.palette;
   }
 
   /** Switch LCD cell packing; caller re-anchors the overlay width. */
@@ -470,7 +497,7 @@ export class PetOverlay implements Component {
     const pet = activePet(this.getState());
     if (!pet) return [];
     const species = speciesFor(pet.species);
-    const quad = this.renderer === "quad";
+    const quad = this.quadFor(species);
     const areaW = petAreaWidth(this.box.w);
     const rows = petCharRows(this.box.h);
     const centreX = Math.round((areaW - this.box.w) / 2);

@@ -57,6 +57,11 @@ Rules:
 - **id** must be lowercase letters/digits/dashes. A pack id may intentionally **reskin a built-in** (e.g. replace `byte`); the pack wins.
 - **evolutions** use the same multi-gate system as the built-ins (`packages/core/evolution.ts`). `from`/`to` may reference built-in or pack species; `axis` is one of `research` / `implementation` / `validation`; `minValidatedRatio` is optional (Guardian-style discipline gate).
 - A broken pack is skipped with a warning — it can never crash the host agent.
+- **Colour packs** add a `palette` (single char → `#rrggbb`); pose chars then index it. Optional `hiPoses` (`{"32": {pose: 32 rows of 32}}`) add detail at larger sizes, and optional `pixelSizes` (e.g. `[21, 44]`, each a `hiPoses` layer or 16) mark exact pixel-art sizes: the display snaps to them instead of resampling. Colour pets always render with half-blocks (one exact pixel per half cell); `/pet renderer quad` applies to single-colour pets.
+
+## Terminals
+
+Colour pets need 24-bit colour for exact colours. agentMon detects it from `COLORTERM`, Windows Terminal (`WT_SESSION`, or any Windows console), Ghostty, iTerm2, kitty, WezTerm, VS Code and similar; others — notably macOS Terminal.app — get the nearest colours from the fixed xterm-256 cube. Force either with `AGENTMON_COLOR=true` or `AGENTMON_COLOR=256`. For seamless pixels use a terminal that draws block characters itself (Windows Terminal, Ghostty, iTerm2, kitty, WezTerm) and keep line spacing at 1.0.
 
 ## Using a pack
 
@@ -110,6 +115,7 @@ npm run pack:from-image -- --img sheet.png --frames 11 --name Agumon
 - **`--frames N`**: horizontal sprite sheet; an 11-frame strip maps with the tuipet pose table below
 - ink = auto-detected: transparent backgrounds mean "any opaque pixel"; opaque (e.g. white GPT) backgrounds mean "colour far enough from the background" — `--threshold` is that distance (default 60; lower it if art comes out blank)
 - images are area-averaged into 16×14 and grounded like the built-ins
+- **upscaled pixel art is recovered, not resampled**: when the frames are pixel art blown up onto a large canvas (e.g. a 22×22 sprite saved at 320×320 with soft edges), the importer finds the art's own pixel grid, reads each art pixel from the centre of its cell, and keeps only the art's real colours. It stores two exact layers — the art grid (1×) and a half-step grid (2×, which keeps eyes/highlights that generated art places on half-pixel offsets) — listed in the species' `pixelSizes`. The display then draws only at those sizes (`/pet size` picks the largest that fits), one art pixel per half-block cell, so pixels stay square and crisp. Pass `pixelGrid: false` to the API to force plain resampling.
 - `--out` defaults to the real pets directory, so after generating you only need `/reload` — or `/pet import <generated pack.json>` for instant registration
 
 Default frame mapping (tuipet's 11-frame strip → agentMon poses):

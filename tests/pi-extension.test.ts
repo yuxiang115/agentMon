@@ -199,7 +199,8 @@ describe("agentMon extension entry (C6: events really reach the pet)", () => {
     );
     expect(showOverlay).toHaveBeenCalledWith(
       expect.anything(),
-      expect.objectContaining({ nonCapturing: true, anchor: "top-right", width: 20 }),
+      // Botamon is a colour pet: half-block LCD, sprite + 16 roam + 4 chrome
+      expect.objectContaining({ nonCapturing: true, anchor: "top-right", width: spriteBox(speciesFor("botamon"), 16).w + 20 }),
     );
     expect(bridge.render(80)).toEqual([]); // the bridge renders nothing
 
@@ -229,16 +230,16 @@ describe("agentMon extension entry (C6: events really reach the pet)", () => {
     await pi.commands.get("pet")!.handler("size 48", ctx);
     expect(showOverlay).toHaveBeenCalledTimes(2); // re-anchored at the new width
     const box = spriteBox(speciesFor("botamon"), 48); // the play area hugs the lit pixels
-    expect(showOverlay.mock.calls[1]?.[1]).toMatchObject({ width: Math.ceil((box.w + 16) / 2) + 4 });
+    expect(showOverlay.mock.calls[1]?.[1]).toMatchObject({ width: box.w + 16 + 4 });
     expect(ctx.ui.notify).toHaveBeenCalledWith(expect.stringContaining("48"), "info");
     expect(JSON.parse(readStateFile(dir)).ui).toEqual({ petSize: 48 });
 
     // the panel renders the cropped sprite: box.h px = ceil(h/2) rows + borders
-    // (quad packs 2px per column: (box.w sprite + 16 roam) / 2 + 4 chrome)
+    // (a colour pet renders half-block: box.w sprite + 16 roam + 4 chrome)
     const overlay = showOverlay.mock.calls[0]?.[0] as unknown as { render(w: number): string[] };
     const lines = overlay.render(100);
     expect(lines).toHaveLength(Math.ceil(box.h / 2) + 3); // LCD rows + borders + species line
-    expect(lines[0]!.length).toBe(Math.ceil((box.w + 16) / 2) + 4);
+    expect(lines[0]!.length).toBe(box.w + 16 + 4);
 
     // out-of-range clamps instead of erroring
     await pi.commands.get("pet")!.handler("size 500", ctx);

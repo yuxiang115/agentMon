@@ -2,7 +2,7 @@ import { describe, expect, it, vi } from "vitest";
 import { visibleWidth } from "@earendil-works/pi-tui";
 import { activePet, addPet, createPet, evolutionTarget, freshState, reduceEvent } from "../packages/core";
 import type { EventType } from "../packages/events/types";
-import { PetOverlay } from "../packages/pi-extension/widget";
+import { PetOverlay, spriteBox } from "../packages/pi-extension/widget";
 import { evolutionLines, footerGoal } from "../packages/pi-extension/growth";
 import { speciesFor } from "../pets/registry";
 import { PiAdapter } from "../packages/adapters/pi/map";
@@ -131,13 +131,17 @@ describe("device feedback", () => {
     } finally { overlay.dispose(); vi.useRealTimers(); }
   });
 
-  it("renders the default quadrant LCD at half the half-block width", () => {
+  it("colour pets render half-block even with the quadrant LCD selected", () => {
+    // a quadrant cell holds two colours and its pixels aren't square — the
+    // colour digivice line keeps every pixel exact in half-blocks
     const state = game();
     const overlay = new PetOverlay({ requestRender() {}, showOverlay: vi.fn() }, () => state, 100000, () => 0.5);
     try {
-      const quad = overlay.render(60).map((l) => l.replace(/\u001b\[[0-9;]*m/g, ""));
-      expect(visibleWidth(quad[0]!)).toBe(20); // ceil((16 sprite + 16 roam) / 2) + 4 chrome
-      expect(quad.join("\n")).toMatch(/[▘▝▖▗▚▞▌▐▙▛▜▟█▄▀]/); // quadrant glyphs on the LCD
+      expect(overlay.wantsQuad()).toBe(false);
+      const lines = overlay.render(60).map((l) => l.replace(/\u001b\[[0-9;]*m/g, ""));
+      const w = spriteBox(speciesFor("botamon"), 16).w;
+      expect(visibleWidth(lines[0]!)).toBe(w + 16 + 4); // sprite + roam + chrome
+      expect(lines.join("\n")).not.toMatch(/[▘▝▖▗▚▞▌▐▙▛▜▟]/); // no quadrant glyphs
     } finally { overlay.dispose(); }
   });
 

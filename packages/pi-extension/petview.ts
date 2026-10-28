@@ -5,10 +5,9 @@
 import type { Component, TUI } from "@earendil-works/pi-tui";
 import type { ExtensionContext } from "@earendil-works/pi-coding-agent";
 import { activePet, levelFromXp, type GameState } from "../core";
-import { poseRowsFor, speciesFor } from "../../pets/registry";
+import { speciesFor } from "../../pets/registry";
 import { poseToColorGrid, renderColorScene } from "../renderer/src/colorframe";
 import { renderScreen } from "../renderer/src/framebuffer";
-import { scaleRows } from "../renderer/src/scale";
 import { pickActivityFrames, HOLD, SLEEP_BEAT, TICK_MS } from "../renderer/src/animation";
 import { evolvePlan } from "../renderer/src/evofx";
 import {
@@ -17,6 +16,7 @@ import {
   petAreaWidth,
   petCharRows,
   petSizeOf,
+  poseFrame,
   spriteBox,
   truncateVisible,
   unionBox,
@@ -129,8 +129,8 @@ class PetScreen implements Component {
     const hold = activity === "sleep" ? SLEEP_BEAT : HOLD;
     // two-frame idle/walk loops are [open, blink] — blink naturally
     const blink = (activity === "idle" || activity === "walk") && poseNames.length === 2;
-    const frame = pickActivityFrames(poseNames.map((p) => poseRowsFor(species, p, size)), this.tickN, hold, blink);
-    const scaled = cropToBox(scaleRows(frame, size), box);
+    const frame = pickActivityFrames(poseNames.map((p) => poseFrame(species, p, size)), this.tickN, hold, blink);
+    const scaled = cropToBox(frame, box);
     return species.palette
       ? renderColorScene(
           [{ grid: poseToColorGrid(scaled, species.palette, scaled.length), xLeft: centreX }],

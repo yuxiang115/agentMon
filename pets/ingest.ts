@@ -173,17 +173,18 @@ export function smartImportPet(srcPath: string, petsDir: string, opts: SmartImpo
         palette: r.palette,
         ink: r.ink,
         hiPoses: r.hiPoses,
+        pixelSizes: r.pixelSizes,
       });
-      return { ...installGeneratedPack(pack, petsDir), recommendedSize: IMAGE_RECOMMENDED_SIZE };
+      return { ...installGeneratedPack(pack, petsDir), recommendedSize: r.pixelSizes?.at(-1) ?? IMAGE_RECOMMENDED_SIZE };
     }
 
     // single PNG (11 poses auto-derived at every layer)
     if (isFile && /\.png$/i.test(dir)) {
       const png = PNG.sync.read(readFileSync(dir));
-      const { poses, palette, hiPoses } = pngToPosesLayers(png, {});
+      const { poses, palette, hiPoses, pixelSizes } = pngToPosesLayers(png, {});
       const name = opts.displayName ?? prettifyFolderName(basename(dir));
-      const pack = buildImagePack(poses, { name, id: slugify(name), palette, hiPoses });
-      return { ...installGeneratedPack(pack, petsDir), recommendedSize: IMAGE_RECOMMENDED_SIZE };
+      const pack = buildImagePack(poses, { name, id: slugify(name), palette, hiPoses, pixelSizes });
+      return { ...installGeneratedPack(pack, petsDir), recommendedSize: pixelSizes?.at(-1) ?? IMAGE_RECOMMENDED_SIZE };
     }
 
     return fail([

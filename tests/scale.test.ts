@@ -14,11 +14,13 @@ import {
   petCharRows,
   petSizeOf,
   cropToBox,
+  poseFrame,
+  renderSizeFor,
   spriteBox,
   unionBox,
 } from "../packages/pi-extension/widget";
 import { freshState } from "../packages/core/pet";
-import { poseRowsFor, speciesFor } from "../pets/registry";
+import { speciesFor } from "../pets/registry";
 
 describe("scaleRows — nearest-neighbour pose resampling", () => {
   const pose = [
@@ -84,19 +86,29 @@ describe("pet size settings (16..60)", () => {
 });
 
 describe("spriteBox — the play area hugs the lit pixels", () => {
-  it("crops the imported Agumon's transparent margins at every size", () => {
-    const agumon = speciesFor("agumon");
+  it("crops every pose of a species to one shared lit box", () => {
+    const botamon = speciesFor("botamon");
+    const lit = (rows: string[]) => rows.join("").replace(/\./g, "").length;
     for (const size of [16, 32, 60]) {
-      const box = spriteBox(agumon, size);
-      expect(box.w).toBeLessThan(size);
-      expect(box.h).toBeLessThan(size);
-      // every pose's lit pixels survive the crop
-      const lit = (rows: string[]) => rows.join("").replace(/\./g, "").length;
-      for (const name of Object.keys(agumon.poses)) {
-        const full = scaleRows(poseRowsFor(agumon, name, size), size);
-        expect(lit(cropToBox(full, box))).toBe(lit(full));
+      const box = spriteBox(botamon, size);
+      expect(box.h).toBeLessThan(size); // the transparent rows are gone
+      for (const name of Object.keys(botamon.poses)) {
+        const full = poseFrame(botamon, name, size);
+        expect(lit(cropToBox(full, box))).toBe(lit(full)); // every lit pixel survives
       }
     }
+  });
+
+  it("pixel-art species render only at their exact sizes", () => {
+    const agumon = speciesFor("agumon");
+    const [small, big] = agumon.pixelSizes!;
+    expect(renderSizeFor(agumon, 16)).toBe(small); // below the smallest: the smallest
+    expect(renderSizeFor(agumon, big! - 1)).toBe(small);
+    expect(renderSizeFor(agumon, 60)).toBe(big);
+    expect(poseFrame(agumon, "idle1", 60)).toHaveLength(big!);
+    expect(spriteBox(agumon, 60).w).toBeLessThanOrEqual(big!);
+    // everything else renders at the requested size
+    expect(renderSizeFor(speciesFor("botamon"), 40)).toBe(40);
   });
 
   it("unionBox covers both boxes", () => {

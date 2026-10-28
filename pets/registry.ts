@@ -85,6 +85,12 @@ export interface SpeciesDef {
    */
   hiPoses?: Record<string, Record<string, string[]>>;
   /**
+   * Exact render sizes for pixel art recovered on its own grid (layer keys
+   * of `hiPoses`, ascending). The display snaps to one of these instead of
+   * resampling, so every art pixel stays one crisp, equal-sized cell.
+   */
+  pixelSizes?: number[];
+  /**
    * activity -> pose loop (the coding role grammar). A loop may hold any
    * number of frames; the animator cycles them at ~3 switches/sec.
    */

@@ -28,7 +28,7 @@ import {
 import type { CodingEvent } from "../events/types";
 import { PetStore } from "../storage/store";
 import { PiAdapter, type EventContext } from "../adapters/pi/map";
-import { installPetDisplay, petSizeOf, clampPetSize, rendererOf, type PetDisplayHandle } from "./widget";
+import { installPetDisplay, petSizeOf, clampPetSize, renderSizeFor, rendererOf, type PetDisplayHandle } from "./widget";
 import { openPetView } from "./petview";
 import { evolutionLines, footerGoal, journalLines, xpLine } from "./growth";
 import { petArguments } from "./args";
@@ -401,7 +401,15 @@ export default function agentmon(pi: ExtensionAPI, options: AgentMonOptions = {}
         const state = store.update((s) => ({ ...s, ui: { ...s.ui, petSize: n } }), now());
         display?.setSize(n);
         display?.refresh(state);
-        ctx.ui?.notify?.(`agentMon: pet size ${n} (16-60)`, "info");
+        const pet = state.activePetId ? state.pets[state.activePetId] : undefined;
+        const species = pet ? speciesFor(pet.species) : undefined;
+        const exact = species?.pixelSizes?.length ? renderSizeFor(species, n) : undefined;
+        ctx.ui?.notify?.(
+          exact !== undefined && exact !== n
+            ? `agentMon: pet size ${n} (16-60) — ${species!.name} is pixel art, drawn pixel-exact at ${exact} (sizes ${species!.pixelSizes!.join("/")})`
+            : `agentMon: pet size ${n} (16-60)`,
+          "info",
+        );
         return;
       }
 
