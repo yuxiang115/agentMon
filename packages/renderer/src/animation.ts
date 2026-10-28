@@ -119,8 +119,9 @@ export class Roamer {
     this.pose = this.rng() < 0.5 ? 0 : 1; // device: 50/50 frame pick
     if (this.rng() < TURN_CHANCE) this.face = this.face === 1 ? -1 : 1;
     this.x += this.face * STEP_PX;
-    let rightEdge = this.cols - this.spriteW;
-    if (rightBound !== undefined) rightEdge = Math.min(rightEdge, rightBound);
+    // an explicit bound wins: callers that know the frame's lit columns let
+    // its transparent margin hang past the edge
+    const rightEdge = rightBound ?? this.cols - this.spriteW;
     if (this.x >= rightEdge) {
       this.x = rightEdge;
       this.pause = WALL_PAUSE;

@@ -308,6 +308,32 @@ export class PetOverlay implements Component {
     if (widthChanged) this.onWidthChange?.();
   }
 
+  /**
+   * Roam range for the frame on screen: the play area is sized for the
+   * widest pose (so it never jumps), but a narrow idle frame should still
+   * walk until its LIT pixels touch either edge — its transparent margin
+   * may hang past. Mirroring swaps which side that margin is on.
+   */
+  private walkBounds(pet: PetState): [number, number] {
+    const species = speciesFor(pet.species);
+    const names = species.roles[pet.activity] ?? species.roles.idle;
+    const exact = pixelExactOf(this.getState());
+    const frame = cropToBox(poseFrame(species, names[this.poseIndex(pet, species)] ?? names[0]!, this.size, exact), this.box);
+    let x0 = Infinity;
+    let x1 = -1;
+    for (const row of frame) {
+      for (let x = 0; x < row.length; x++) {
+        if (row[x] === ".") continue;
+        if (x < x0) x0 = x;
+        if (x > x1) x1 = x;
+      }
+    }
+    const areaW = petAreaWidth(this.box.w);
+    if (x1 < 0) return roamBounds(this.box.w, areaW);
+    const [left, right] = this.roamer.mirror ? [this.box.w - 1 - x1, this.box.w - 1 - x0] : [x0, x1];
+    return [-left, areaW - 1 - right];
+  }
+
   /** Panel width for the current sprite box — the caller anchors with it. */
   overlayWidth(): number {
     return overlayWidthFor(this.currentBox().w, this.wantsQuad());
@@ -449,8 +475,12 @@ export class PetOverlay implements Component {
     this.syncBox();
     const pet = activePet(this.getState());
     if (pet && (pet.activity === "idle" || pet.activity === "walk")) {
-      const [minX, maxX] = roamBounds(this.box.w, petAreaWidth(this.box.w));
+      const [minX, maxX] = this.walkBounds(pet);
       this.roamer.step(minX, maxX);
+      // a turn flips which side the frame's margin is on: keep the lit
+      // pixels inside the panel
+      const [lo, hi] = this.walkBounds(pet);
+      this.roamer.x = Math.min(hi, Math.max(lo, this.roamer.x));
     }
     // Repaint only when the visible frame can change: pose switch, blink,
     // roam step, zzz rise, toast blink, or an evolution-fx bucket. A sleeping

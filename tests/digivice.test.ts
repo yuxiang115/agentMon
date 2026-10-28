@@ -131,6 +131,36 @@ describe("device feedback", () => {
     } finally { overlay.dispose(); vi.useRealTimers(); }
   });
 
+  it("a narrow idle frame walks until its lit pixels touch either panel edge", () => {
+    // the play area fits Agumon's widest pose; idle is much narrower, so a
+    // box-bound roam would leave dead space on both sides
+    vi.useFakeTimers();
+    const state = addPet(freshState(0), createPet({ name: "agumon", species: "agumon", now: 0 }));
+    let seed = 1;
+    const rng = () => ((seed = (seed * 16807) % 2147483647) / 2147483647);
+    const overlay = new PetOverlay({ requestRender() {}, showOverlay: vi.fn() }, () => state, 100, rng, 60, "half");
+    try {
+      const lit = (line: string) => line.replace(/\u001b\[[0-9;]*m/g, "").slice(2, -2); // strip "│ " / " │"
+      let touchedLeft = false;
+      let touchedRight = false;
+      let maxLit = 0;
+      for (let i = 0; i < 600 && !(touchedLeft && touchedRight); i++) {
+        vi.advanceTimersByTime(500); // one walk step
+        const lcd = overlay.render(200).slice(2, -1).map(lit);
+        const width = lcd[0]!.length;
+        touchedLeft ||= lcd.some((l) => l[0] !== " ");
+        touchedRight ||= lcd.some((l) => l[width - 1] !== " ");
+        maxLit = Math.max(maxLit, ...lcd.map((l) => l.trim().length));
+      }
+      expect(touchedLeft).toBe(true);
+      expect(touchedRight).toBe(true);
+      expect(maxLit).toBeLessThan(spriteBox(speciesFor("agumon"), 60).w + 16); // never wider than the area
+    } finally {
+      overlay.dispose();
+      vi.useRealTimers();
+    }
+  });
+
   it("colour pets render half-block even with the quadrant LCD selected", () => {
     // a quadrant cell holds two colours and its pixels aren't square — the
     // colour digivice line keeps every pixel exact in half-blocks
